@@ -82,11 +82,24 @@ body{
 .entry .body{border-left:3px solid var(--dust);padding-left:13px}
 .entry .kind{font-size:12.5px;font-weight:800;letter-spacing:.05em}
 .entry .addr{font-size:16.5px;font-weight:600;margin-top:2px;line-height:1.5}
+.entry .wx{font-size:13.5px;color:var(--mute);margin-top:3px}
 .entry .note{font-size:16px;line-height:1.75;margin-top:7px}
 .entry img{
   width:100%;border-radius:8px;margin-top:11px;display:block;
   background:var(--dust);cursor:zoom-in;aspect-ratio:4/3;object-fit:cover
 }
+
+.wall{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin:0 -18px 24px}
+.wall img{
+  width:100%;aspect-ratio:1;object-fit:cover;display:block;
+  background:var(--dust);cursor:zoom-in
+}
+.wall .day{
+  grid-column:1/-1;font-size:12px;font-weight:800;letter-spacing:.08em;color:var(--mute);
+  padding:16px 18px 6px;margin:0;border-top:1px solid var(--dust)
+}
+.wall .day:first-child{border-top:0;padding-top:0}
+.wallhead{font-size:13px;color:var(--mute);margin:0 0 16px}
 
 .cta{
   display:block;background:var(--ink);color:var(--paper);text-decoration:none;
@@ -151,9 +164,9 @@ body{
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R2.1';
+const BUILD = 'R2.3';
 
-const COLORS = { '出發':'#0B6E4F', '打卡':'#C99A1E', '收工':'#1F2622' };
+const COLORS = { '出發':'#0B6E4F', '打卡':'#C99A1E', '休息':'#6E8090', '收工':'#1F2622' };
 const $ = function(id){ return document.getElementById(id); };
 
 const map = L.map('map', { zoomControl:false }).setView([23.7, 121.0], 7);
@@ -177,7 +190,7 @@ function load(){
       DATA = res.data;
       DAYS = groupByDay(DATA);
       if (!booted) { sel = fromHash(); refit = true; booted = true; }
-      if (sel !== null && !dayOf(sel)) sel = null;
+      if (sel !== null && sel !== 'wall' && !dayOf(sel)) sel = null;
       renderAll();
       refit = false;
     })
@@ -189,6 +202,7 @@ function load(){
 function fromHash(){
   const m = location.hash.match(/^#d(\d+)$/);
   if (m) return Number(m[1]);
+  if (location.hash === '#photos') return 'wall';
   if (location.hash === '#all') return null;
   return DAYS.length ? DAYS[DAYS.length - 1].no : null;   // 預設看最新的一天
 }
@@ -209,6 +223,7 @@ function groupByDay(d){
     g.km = g.pts.reduce(function(s, p){ return s + (p.km || 0); }, 0);
     g.from = g.pts[0].addr || '';
     g.to = g.pts[g.pts.length - 1].addr || '';
+    Object.assign(g, hoursOf(g.pts));
     // 收工那筆的留言就是當天的日記
     const wrap = g.pts.filter(function(p){ return p.type === '收工' && p.note; }).pop();
     g.diary = wrap ? wrap.note : '';
@@ -217,10 +232,48 @@ function groupByDay(d){
   }).sort(function(a, b){ return a.date - b.date; });
 }
 
+/** 行走時數：首筆到收工（未收工算到現在），扣掉每段休息 */
+function hoursOf(pts){
+  const t0 = new Date(pts[0].t);
+  const done = pts.filter(function(p){ return p.type === '收工'; }).pop();
+  const isToday = sameDay(t0);
+  const t1 = done ? new Date(done.t) : (isToday ? new Date() : new Date(pts[pts.length-1].t));
+
+  let rest = 0, resting = false;
+  for (let i = 0; i < pts.length; i++) {
+    if (pts[i].type !== '休息') continue;
+    const from = new Date(pts[i].t);
+    const nxt = pts[i+1] ? new Date(pts[i+1].t) : t1;
+    rest += Math.max(0, nxt - from);
+    resting = !pts[i+1] && !done;
+  }
+  return {
+    walkMin: Math.max(0, Math.round(((t1 - t0) - rest) / 60000)),
+    restMin: Math.round(rest / 60000),
+    resting: resting && isToday,
+    done: !!done
+  };
+}
+
+function sameDay(d){
+  const b = new Date();
+  return d.getFullYear() === b.getFullYear() && d.getMonth() === b.getMonth() && d.getDate() === b.getDate();
+}
+
+function hm(min){
+  const h = Math.floor(min / 60), m = min % 60;
+  if (h && m) return h + ' 小時 ' + m + ' 分';
+  if (h) return h + ' 小時';
+  return m + ' 分';
+}
+
 function renderAll(){ drawChips(); drawMap(); drawHead(); drawFeed(); }
 
 function drawChips(){
-  let html = '<button class="chip" data-d="all" aria-pressed="' + (sel === null) + '">全程<em>' +
+  const shots = photoCount();
+  let html = '<button class="chip" data-d="wall" aria-pressed="' + (sel === 'wall') + '">照片<em>' +
+             shots + ' 張</em></button>' +
+             '<button class="chip" data-d="all" aria-pressed="' + (sel === null) + '">全程<em>' +
              DAYS.length + ' 天</em></button>';
   DAYS.slice().reverse().forEach(function(g){
     html += '<button class="chip" data-d="' + g.no + '" aria-pressed="' + (sel === g.no) +
@@ -229,8 +282,10 @@ function drawChips(){
   $('days').innerHTML = html;
   $('days').querySelectorAll('.chip').forEach(function(b){
     b.addEventListener('click', function(){
-      sel = b.dataset.d === 'all' ? null : Number(b.dataset.d);
-      history.replaceState(null, '', sel === null ? '#all' : '#d' + sel);
+      sel = b.dataset.d === 'all' ? null
+          : b.dataset.d === 'wall' ? 'wall'
+          : Number(b.dataset.d);
+      history.replaceState(null, '', sel === null ? '#all' : (sel === 'wall' ? '#photos' : '#d' + sel));
       refit = true;
       renderAll();
       refit = false;
@@ -244,12 +299,12 @@ function drawChips(){
 function drawMap(){
   layer.clearLayers();
   const all = (DATA.points || []).map(function(p){ return [p.lat, p.lng]; });
-  const shown = sel === null ? DAYS : [dayOf(sel)].filter(Boolean);
+  const shown = (sel === null || sel === 'wall') ? DAYS : [dayOf(sel)].filter(Boolean);
   const pts = shown.reduce(function(a, g){ return a.concat(g.pts); }, []);
   const line = pts.map(function(p){ return [p.lat, p.lng]; });
 
   // 只看某一天時，其餘路線淡淡留著當底
-  if (sel !== null && all.length > 1) {
+  if (sel !== null && sel !== 'wall' && all.length > 1) {
     L.polyline(all, { color:'#9AA39C', weight:3, opacity:.5 }).addTo(layer);
   }
   if (line.length > 1) {
@@ -279,7 +334,7 @@ function drawMap(){
 
 function drawHead(){
   const pts = DATA.points || [];
-  const g = sel === null ? null : dayOf(sel);
+  const g = (sel === null || sel === 'wall') ? null : dayOf(sel);
   if (!pts.length) {
     document.querySelector('.milestone').innerHTML =
       '<div class="km">0<i>km</i></div><div class="sub">' + startLabel() + '出發</div>';
@@ -300,11 +355,19 @@ function drawHead(){
   const last = pts[pts.length - 1];
   $('label').textContent = last.type === '收工' ? '今天走到這裡' : '地瓜現在在';
   $('place').textContent = short(last.addr) || (last.lat.toFixed(4) + ', ' + last.lng.toFixed(4));
-  $('when').textContent = fullTime(last.t) + '　' + ago(last.t);
+  const g0 = DAYS[DAYS.length - 1];
+  $('when').innerHTML = esc(fullTime(last.t)) + '　' + ago(last.t) +
+    (last.wx ? '　·　' + esc(last.wx) : '') +
+    (g0 && sameDay(g0.date)
+      ? '<br>' + (g0.resting
+          ? '<b style="color:#6E8090">休息中</b>，今天已走 ' + hm(g0.walkMin)
+          : (g0.done ? '今天收工，走了 ' + hm(g0.walkMin) : '今天走了 ' + hm(g0.walkMin)))
+      : '');
   $('foot').textContent = '最後更新 ' + hhmm(DATA.updated) + '　·　' + BUILD;
 }
 
 function drawFeed(){
+  if (sel === 'wall') { drawWall(); return; }
   const shown = sel === null ? DAYS.slice().reverse() : [dayOf(sel)].filter(Boolean);
   if (!shown.length) {
     $('list').innerHTML = '<p class="empty">陳地瓜 ' + startLabel() +
@@ -318,6 +381,39 @@ function drawFeed(){
   });
 }
 
+function photoCount(){
+  return DAYS.reduce(function(n, g){
+    return n + g.pts.filter(function(p){ return p.photo; }).length;
+  }, 0);
+}
+
+function drawWall(){
+  if (!photoCount()) {
+    $('list').innerHTML = '<p class="empty">還沒有照片。地瓜路上按「打卡」拍的每一張，都會落在這裡。</p>';
+    return;
+  }
+  let html = '<p class="wallhead">' + photoCount() + ' 張，由新到舊。點一下放大。</p><div class="wall">';
+  DAYS.slice().reverse().forEach(function(g){
+    const shots = g.pts.filter(function(p){ return p.photo; });
+    if (!shots.length) return;
+    html += '<p class="day">第 ' + g.no + ' 天　' + longDate(g.date) + '</p>';
+    shots.reverse().forEach(function(p){
+      html += '<img loading="lazy" src="' + thumb(p) + '" data-full="' + p.photo +
+              '" data-cap="第 ' + g.no + ' 天　' + hhmm(p.t) + '　' + esc(short(p.addr)) +
+              (p.note ? '　' + esc(p.note) : '') + '" alt="">';
+    });
+  });
+  $('list').innerHTML = html + '</div>';
+  $('list').querySelectorAll('img[data-full]').forEach(function(img){
+    img.addEventListener('click', function(){ openLb(img.dataset.full, img.dataset.cap); });
+  });
+}
+
+/** 牆上用小圖，點開才載大圖 */
+function thumb(p){
+  return p.pid ? 'https://drive.google.com/thumbnail?id=' + p.pid + '&sz=w400' : p.photo;
+}
+
 function dayBlock(g){
   let h = '<section class="day"><div class="dayhead"><span class="n">第 ' + g.no + ' 天</span>' +
           '<span class="date">' + longDate(g.date) + '</span></div>';
@@ -327,7 +423,10 @@ function dayBlock(g){
   } else if (g.to) {
     h += '<p class="route">' + esc(short(g.to)) + '</p>';
   }
-  h += '<p class="stat">' + round1(g.km) + ' 公里　·　打卡 ' + g.pts.length + ' 次　·　照片 ' +
+  h += '<p class="stat">' + round1(g.km) + ' 公里　·　走了 ' + hm(g.walkMin) +
+       (g.restMin ? '　·　休息 ' + hm(g.restMin) : '') +
+       (g.resting ? '　·　<b style="color:#6E8090">休息中</b>' : '') + '</p>';
+  h += '<p class="stat" style="margin-top:-8px">打卡 ' + g.pts.length + ' 次　·　照片 ' +
        g.pts.filter(function(p){ return p.photo; }).length + ' 張</p>';
 
   if (g.diary) h += '<p class="diary">' + esc(g.diary) + '</p>';
@@ -338,6 +437,7 @@ function dayBlock(g){
          '<div class="body" style="border-color:' + (COLORS[p.type] || '#C9C3B2') + '">' +
          '<div class="kind" style="color:' + (COLORS[p.type] || '#1F2622') + '">' + esc(p.type) + '</div>' +
          '<div class="addr">' + (esc(short(p.addr)) || '—') + '</div>' +
+         (p.wx ? '<div class="wx">' + esc(p.wx) + '</div>' : '') +
          (showNote ? '<div class="note">' + esc(p.note) + '</div>' : '') +
          (p.photo ? '<img loading="lazy" src="' + p.photo + '" data-full="' + p.photo +
                     '" data-cap="第 ' + g.no + ' 天　' + hhmm(p.t) + '　' + esc(short(p.addr)) +
