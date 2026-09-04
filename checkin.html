@@ -12,7 +12,7 @@
 :root{
   --paper:#F7F5EF; --ink:#1F2622; --sign:#0B6E4F; --paint:#F4E04D;
   --brick:#B4472E; --dust:#C9C3B2; --mute:#6B6F68;
-  --BUILD:"R2.6";
+  --BUILD:"R2.7";
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%}
@@ -49,9 +49,22 @@ header{padding:14px 0 12px;flex:none}
 .timer.walking .badge i,.timer.resting .badge i{animation:blink 1.6s ease-in-out infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
 
+.wx{
+  margin-top:8px;background:#fff;border-radius:12px;padding:11px 15px 12px;
+  border-left:5px solid var(--dust)
+}
+.wx.warm{border-left-color:var(--paint)}
+.wx.hot{border-left-color:var(--brick)}
+.wx.wet{border-left-color:#6E8090}
+.wxline{display:flex;align-items:baseline;gap:10px}
+.wxline b{font-size:21px;font-weight:800;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.wxline span{font-size:14px;color:var(--mute);font-weight:600}
+.wxTip{margin:5px 0 0;font-size:14px;line-height:1.6;font-weight:600;color:var(--ink)}
+.wx.hot .wxTip{color:var(--brick)}
+
 .row2{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-top:9px}
 .clock{
-  font-size:40px;font-weight:800;line-height:1;letter-spacing:-.02em;
+  font-size:36px;font-weight:800;line-height:1;letter-spacing:-.02em;
   font-variant-numeric:tabular-nums;color:var(--ink)
 }
 .timer.resting .clock{color:#6E8090}
@@ -60,7 +73,7 @@ header{padding:14px 0 12px;flex:none}
 .grid{flex:1;display:grid;grid-template-rows:1fr 1fr 1fr;gap:10px;min-height:0}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:0}
 .act{
-  border:0;border-radius:14px;font-family:inherit;font-size:34px;font-weight:800;
+  border:0;border-radius:14px;font-family:inherit;font-size:31px;font-weight:800;
   letter-spacing:.06em;display:flex;flex-direction:column;justify-content:center;
   align-items:center;gap:6px;cursor:pointer;transition:transform .08s ease;
 }
@@ -133,6 +146,10 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
       <div class="state" id="state"></div>
     </div>
   </div>
+  <div class="wx" id="wx" hidden>
+    <div class="wxline"><b id="wxT">—</b><span id="wxD"></span></div>
+    <p class="wxTip" id="wxTip"></p>
+  </div>
 </header>
 
 <div class="grid" id="grid">
@@ -167,7 +184,7 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
 
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R2.6';
+const BUILD = 'R2.7';
 const QKEY = 'digua_queue';
 const TKEY = 'digua_token';
 
@@ -317,11 +334,13 @@ function flush(){
       const rest = queue().filter(function(x){ return x.cid !== rec.cid; });
       saveQueue(rest);
       localStorage.setItem('digua_last', JSON.stringify({
-        type: rec.type, ts: rec.ts, addr: res.addr || '', wx: res.wx || ''
+        type: rec.type, ts: rec.ts, addr: res.addr || '', wx: res.wx || '',
+        lat: rec.lat, lng: rec.lng
       }));
       if (res.today) localStorage.setItem('digua_today', JSON.stringify(
         Object.assign({ at: Date.now() }, res.today)));
       tick();
+      loadWx(rec.lat, rec.lng);
       render();
       flush();
     } else {
@@ -428,6 +447,76 @@ function sameDay(ts){
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+// ── 天氣與補水 ──────────────────────────
+const WMO = {
+  0:'晴', 1:'大致晴朗', 2:'多雲時晴', 3:'陰',
+  45:'有霧', 48:'霧淞',
+  51:'毛毛雨', 53:'毛毛雨', 55:'毛毛雨', 56:'凍雨', 57:'凍雨',
+  61:'小雨', 63:'中雨', 65:'大雨', 66:'凍雨', 67:'凍雨',
+  71:'小雪', 73:'中雪', 75:'大雪', 77:'霰',
+  80:'陣雨', 81:'陣雨', 82:'強陣雨', 85:'陣雪', 86:'強陣雪',
+  95:'雷雨', 96:'雷雨帶冰雹', 99:'強雷雨帶冰雹'
+};
+
+function loadWx(lat, lng){
+  if (lat == null || lng == null) {
+    let last = null;
+    try { last = JSON.parse(localStorage.getItem('digua_last')); } catch(e){}
+    if (!last || last.lat == null) return;
+    lat = last.lat; lng = last.lng;
+  }
+  fetch('https://api.open-meteo.com/v1/forecast?latitude=' + lat + '&longitude=' + lng +
+        '&current=temperature_2m,apparent_temperature,weather_code,precipitation' +
+        '&timezone=Asia%2FTaipei')
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      const c = (j && j.current) || {};
+      if (c.temperature_2m == null) return;
+      const w = {
+        t: Math.round(c.temperature_2m * 10) / 10,
+        feels: c.apparent_temperature == null ? null : Math.round(c.apparent_temperature),
+        desc: WMO[c.weather_code] || '',
+        rain: (c.precipitation || 0) > 0,
+        at: Date.now()
+      };
+      localStorage.setItem('digua_wx', JSON.stringify(w));
+      showWx();
+    })
+    .catch(function(){});
+}
+
+function showWx(){
+  let w = null;
+  try { w = JSON.parse(localStorage.getItem('digua_wx')); } catch(e){}
+  const box = $('wx');
+  if (!w || Date.now() - w.at > 3 * 3600 * 1000) { box.hidden = true; return; }
+
+  box.hidden = false;
+  box.className = 'wx';
+  $('wxT').textContent = w.t + '°C';
+  $('wxD').textContent = (w.desc || '') +
+    (w.feels != null && Math.abs(w.feels - w.t) >= 2 ? '　體感 ' + w.feels + '°C' : '');
+
+  const f = (w.feels != null ? w.feels : w.t);
+  let tip;
+  if (f >= 34) {
+    box.classList.add('hot');
+    tip = '很熱。每 15 到 20 分鐘喝幾口水，別等到口渴。頭暈、起雞皮疙瘩或不流汗就馬上找陰涼處坐下。';
+  } else if (f >= 30) {
+    box.classList.add('warm');
+    tip = '偏熱，每 20 到 30 分鐘補一次水。中午那幾個小時盡量走有遮蔭的一側。';
+  } else if (w.rain || (w.desc && w.desc.indexOf('雨') >= 0)) {
+    box.classList.add('wet');
+    tip = '有雨，路面濕滑。天氣涼不代表不會脫水，還是要定時喝水。';
+  } else if (f <= 14) {
+    box.classList.add('wet');
+    tip = '偏冷。冷天一樣會流失水分，記得定時補水，休息時別把汗濕的衣服穿著吹風。';
+  } else {
+    tip = '走起來舒服。每 30 分鐘喝一次水，維持節奏。';
+  }
+  $('wxTip').textContent = tip;
+}
+
 function uuid(){
   if (crypto.randomUUID) return crypto.randomUUID();
   return 'x' + Date.now() + Math.random().toString(16).slice(2);
@@ -444,6 +533,9 @@ $('who').textContent = '陳地瓜走到哪　' + BUILD;
 render();
 flush();
 tick();
+showWx();
+loadWx();
+setInterval(function(){ if (!document.hidden) loadWx(); }, 15 * 60 * 1000);
 setInterval(function(){ if (!document.hidden) tick(); }, 1000);
 document.addEventListener('visibilitychange', function(){ if (!document.hidden) tick(); });
 
