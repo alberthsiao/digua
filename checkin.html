@@ -12,7 +12,7 @@
 :root{
   --paper:#F7F5EF; --ink:#1F2622; --sign:#0B6E4F; --paint:#F4E04D;
   --brick:#B4472E; --dust:#C9C3B2; --mute:#6B6F68;
-  --BUILD:"R2.3";
+  --BUILD:"R2.6";
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%}
@@ -23,9 +23,39 @@ body{
   padding:env(safe-area-inset-top) 16px calc(env(safe-area-inset-bottom) + 12px);
 }
 
-header{display:flex;align-items:baseline;gap:10px;padding:18px 2px 14px}
-header b{font-size:15px;font-weight:800;color:var(--sign);letter-spacing:.02em}
-header span{font-size:13px;color:var(--mute)}
+header{padding:14px 0 12px;flex:none}
+.hd{display:flex;align-items:baseline;gap:10px;padding:0 2px 8px}
+.hd b{font-size:15px;font-weight:800;color:var(--sign);letter-spacing:.02em}
+.hd span{font-size:12px;color:var(--mute)}
+
+.timer{
+  background:#fff;border-radius:12px;padding:12px 16px 14px;
+  border-left:5px solid var(--dust)
+}
+.timer.walking{border-left-color:var(--sign)}
+.timer.resting{border-left-color:#6E8090}
+.timer.done{border-left-color:var(--ink)}
+
+.badge{
+  display:inline-flex;align-items:center;gap:7px;
+  background:var(--dust);color:var(--ink);
+  border-radius:999px;padding:5px 13px 5px 11px;
+  font-size:13.5px;font-weight:800;letter-spacing:.04em
+}
+.badge i{width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+.timer.walking .badge{background:var(--sign);color:#fff}
+.timer.resting .badge{background:#6E8090;color:#fff}
+.timer.done .badge{background:var(--ink);color:var(--paper)}
+.timer.walking .badge i,.timer.resting .badge i{animation:blink 1.6s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+
+.row2{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-top:9px}
+.clock{
+  font-size:40px;font-weight:800;line-height:1;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;color:var(--ink)
+}
+.timer.resting .clock{color:#6E8090}
+.state{font-size:13px;font-weight:600;color:var(--mute);text-align:right;line-height:1.5}
 
 .grid{flex:1;display:grid;grid-template-rows:1fr 1fr 1fr;gap:10px;min-height:0}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:0}
@@ -95,15 +125,22 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
 <body>
 
 <header>
-  <b id="day">環島</b><span id="who"></span>
+  <div class="hd"><b id="day">環島</b><span id="who"></span></div>
+  <div class="timer" id="timer">
+    <span class="badge" id="badge"><i></i>尚未出發</span>
+    <div class="row2">
+      <div class="clock" id="clock">0:00:00</div>
+      <div class="state" id="state"></div>
+    </div>
+  </div>
 </header>
 
 <div class="grid" id="grid">
-  <button class="act go"   data-type="出發">出發<small>開始計時，寄信給好友</small></button>
   <div class="pair">
-    <button class="act mark" data-type="打卡">打卡<small>記位置、拍照</small></button>
+    <button class="act go"   data-type="出發">出發<small>開始／繼續計時</small></button>
     <button class="act rest" data-type="休息">休息<small>暫停計時</small></button>
   </div>
+  <button class="act mark" data-type="打卡">打卡<small>記位置、拍照，不影響計時</small></button>
   <button class="act done" data-type="收工">收工<small>今天走完了，留言就是日記</small></button>
 </div>
 
@@ -130,7 +167,7 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
 
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R2.3';
+const BUILD = 'R2.6';
 const QKEY = 'digua_queue';
 const TKEY = 'digua_token';
 
@@ -153,9 +190,10 @@ document.querySelectorAll('.act').forEach(function(btn){
     current = { type: btn.dataset.type, photo: null };
     $('panelTitle').textContent = btn.dataset.type;
     $('note').value = '';
-    $('note').placeholder = btn.dataset.type === '收工'
-      ? '今天走得怎麼樣？這段話會變成今天的日記'
-      : (btn.dataset.type === '休息' ? '在哪裡休息？吃了什麼？（可留空）' : '想說的話（可留空）');
+    const ph = { '收工':'今天走得怎麼樣？這段話會變成今天的日記',
+                 '休息':'在哪裡休息？吃了什麼？（可留空）',
+                 '出發':'準備好了嗎？（可留空）' };
+    $('note').placeholder = ph[btn.dataset.type] || '想說的話（可留空）';
     $('pic').value = '';
     $('thumb').hidden = true;
     $('send').disabled = true;
@@ -283,6 +321,7 @@ function flush(){
       }));
       if (res.today) localStorage.setItem('digua_today', JSON.stringify(
         Object.assign({ at: Date.now() }, res.today)));
+      tick();
       render();
       flush();
     } else {
@@ -302,35 +341,19 @@ function render(){
   let last = null;
   try { last = JSON.parse(localStorage.getItem('digua_last')); } catch(e){}
 
-  let today = null;
-  try { today = JSON.parse(localStorage.getItem('digua_today')); } catch(e){}
-  if (today && !sameDay(today.at)) today = null;
-
   let html = '';
-  if (today && !today.done) {
-    // 上次同步之後又過了一段時間，走路或休息都繼續累加
-    const extra = Math.round((Date.now() - today.at) / 60000);
-    const walk = today.walkMin + (today.resting ? 0 : extra);
-    const rest = today.restMin + (today.resting ? extra : 0);
-    html += today.resting
-      ? '<span class="resting">休息中 ' + hm(rest) + '</span>　今天已走 ' + hm(walk)
-      : '<span class="walking">今天走了 ' + hm(walk) + '</span>' + (rest ? '　休息 ' + hm(rest) : '');
-    html += '<br>';
-  } else if (today && today.done) {
-    html += '<span class="walking">今天收工了，走了 ' + hm(today.walkMin) + '</span><br>';
-  }
-
   if (last) {
     const d = new Date(last.ts);
     html += '上次 <b>' + last.type + '</b>　' +
             d.toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
     if (last.wx) html += '　' + last.wx;
     if (last.addr) html += '<br>' + last.addr;
-  } else if (!today) {
-    html += '尚未打卡。';
+  } else {
+    html += '還沒有打卡紀錄。';
   }
   if (n) html += '<br><span class="pending">還有 ' + n + ' 筆等訊號，回到有網路的地方會自動補送</span>';
   $('foot').innerHTML = html;
+  tick();
 }
 
 function toast(msg){
@@ -339,6 +362,58 @@ function toast(msg){
   t.classList.add('on');
   clearTimeout(toast._t);
   toast._t = setTimeout(function(){ t.classList.remove('on'); }, 2600);
+}
+
+/** 讀今天的狀態，過了午夜就作廢 */
+function todayState(){
+  let t = null;
+  try { t = JSON.parse(localStorage.getItem('digua_today')); } catch(e){}
+  if (!t || !sameDay(t.at)) return null;
+  const gone = Math.max(0, Math.round((Date.now() - t.at) / 1000));
+  return {
+    walk: (t.walkSec || t.walkMin * 60 || 0) + (t.resting || t.done ? 0 : gone),
+    rest: (t.restSec || t.restMin * 60 || 0) + (t.resting ? gone : 0),
+    resting: !!t.resting,
+    done: !!t.done
+  };
+}
+
+function hms(sec){
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor(sec % 3600 / 60);
+  const s2 = Math.floor(sec % 60);
+  return h + ':' + String(m).padStart(2, '0') + ':' + String(s2).padStart(2, '0');
+}
+
+/** 每秒跳一次 */
+function tick(){
+  const t = todayState();
+  const box = $('timer');
+  box.className = 'timer';
+
+  if (!t) {
+    setTimer('尚未出發', '0:00:00', '按「出發」開始計時');
+    return;
+  }
+  if (t.done) {
+    box.classList.add('done');
+    setTimer('今天收工', hms(t.walk), t.rest ? '休息 ' + hm(Math.round(t.rest / 60)) : '辛苦了');
+    return;
+  }
+  if (t.resting) {
+    box.classList.add('resting');
+    setTimer('休息中', hms(t.rest),
+             '今天已走 ' + hm(Math.round(t.walk / 60)) + '　按「出發」繼續計時');
+    return;
+  }
+  box.classList.add('walking');
+  setTimer('步行中', hms(t.walk), t.rest ? '休息 ' + hm(Math.round(t.rest / 60)) : '今天第一段');
+}
+
+function setTimer(label, clock, note){
+  $('badge').innerHTML = '<i></i>' + label;
+  $('clock').textContent = clock;
+  $('state').textContent = note;
 }
 
 function hm(min){
@@ -368,7 +443,9 @@ $('who').textContent = '陳地瓜走到哪　' + BUILD;
 
 render();
 flush();
-setInterval(render, 60000);
+tick();
+setInterval(function(){ if (!document.hidden) tick(); }, 1000);
+document.addEventListener('visibilitychange', function(){ if (!document.hidden) tick(); });
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function(){});
 </script>

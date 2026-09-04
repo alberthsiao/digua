@@ -61,7 +61,18 @@ body{
 }
 
 .now{border-bottom:2px solid var(--ink);padding-bottom:16px;margin-bottom:22px}
-.now .label{font-size:12px;font-weight:800;letter-spacing:.1em;color:var(--sign)}
+.now .label{font-size:12px;font-weight:800;letter-spacing:.1em;color:var(--sign);
+  display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.badge{
+  display:inline-flex;align-items:center;gap:6px;border-radius:999px;
+  padding:4px 11px 4px 9px;font-size:12px;font-weight:800;letter-spacing:.04em
+}
+.badge::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.badge.walking{background:var(--sign);color:#fff}
+.badge.resting{background:#6E8090;color:#fff}
+.badge.done{background:var(--ink);color:var(--paper)}
+.badge.walking::before,.badge.resting::before{animation:blink 1.6s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
 .now .place{font-size:26px;font-weight:800;line-height:1.28;margin:5px 0 4px}
 .now .when{font-size:14px;color:var(--mute)}
 
@@ -148,7 +159,7 @@ body{
   <div class="scroll" id="scroll">
     <div class="feed">
       <div class="now">
-        <div class="label" id="label">地瓜現在在</div>
+        <div class="label"><span id="label">地瓜現在在</span><span class="badge" id="badge" hidden></span></div>
         <div class="place" id="place">正在讀取…</div>
         <div class="when" id="when"></div>
       </div>
@@ -164,7 +175,7 @@ body{
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R2.3';
+const BUILD = 'R2.6';
 
 const COLORS = { '出發':'#0B6E4F', '打卡':'#C99A1E', '休息':'#6E8090', '收工':'#1F2622' };
 const $ = function(id){ return document.getElementById(id); };
@@ -239,13 +250,17 @@ function hoursOf(pts){
   const isToday = sameDay(t0);
   const t1 = done ? new Date(done.t) : (isToday ? new Date() : new Date(pts[pts.length-1].t));
 
+  // 休息到下一次「出發」或「收工」為止；中間的「打卡」不算恢復
   let rest = 0, resting = false;
   for (let i = 0; i < pts.length; i++) {
     if (pts[i].type !== '休息') continue;
     const from = new Date(pts[i].t);
-    const nxt = pts[i+1] ? new Date(pts[i+1].t) : t1;
-    rest += Math.max(0, nxt - from);
-    resting = !pts[i+1] && !done;
+    let end = null;
+    for (let j = i + 1; j < pts.length; j++) {
+      if (pts[j].type === '出發' || pts[j].type === '收工') { end = new Date(pts[j].t); break; }
+    }
+    rest += Math.max(0, (end || t1) - from);
+    if (!end) resting = !done;
   }
   return {
     walkMin: Math.max(0, Math.round(((t1 - t0) - rest) / 60000)),
@@ -348,6 +363,7 @@ function drawHead(){
     const d = untilStart();
     $('label').textContent = '出發日';
     $('place').textContent = startLabel();
+    $('badge').hidden = true;
     $('when').textContent = d > 0 ? '還有 ' + d + ' 天' : (d === 0 ? '今天上路' : '準備中');
     $('foot').textContent = BUILD;
     return;
@@ -356,12 +372,21 @@ function drawHead(){
   $('label').textContent = last.type === '收工' ? '今天走到這裡' : '地瓜現在在';
   $('place').textContent = short(last.addr) || (last.lat.toFixed(4) + ', ' + last.lng.toFixed(4));
   const g0 = DAYS[DAYS.length - 1];
+  const live = g0 && sameDay(g0.date);
+  const b = $('badge');
+  if (live) {
+    b.hidden = false;
+    b.className = 'badge ' + (g0.done ? 'done' : g0.resting ? 'resting' : 'walking');
+    b.textContent = g0.done ? '今天收工' : g0.resting ? '休息中' : '步行中';
+  } else {
+    b.hidden = true;
+  }
+
   $('when').innerHTML = esc(fullTime(last.t)) + '　' + ago(last.t) +
     (last.wx ? '　·　' + esc(last.wx) : '') +
-    (g0 && sameDay(g0.date)
-      ? '<br>' + (g0.resting
-          ? '<b style="color:#6E8090">休息中</b>，今天已走 ' + hm(g0.walkMin)
-          : (g0.done ? '今天收工，走了 ' + hm(g0.walkMin) : '今天走了 ' + hm(g0.walkMin)))
+    (live ? '<br>' + (g0.resting
+        ? '今天已走 ' + hm(g0.walkMin) + (g0.restMin ? '，休息 ' + hm(g0.restMin) : '')
+        : (g0.done ? '走了 ' + hm(g0.walkMin) : '今天走了 ' + hm(g0.walkMin)))
       : '');
   $('foot').textContent = '最後更新 ' + hhmm(DATA.updated) + '　·　' + BUILD;
 }
