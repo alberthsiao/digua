@@ -151,7 +151,7 @@ body{
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R2.0';
+const BUILD = 'R2.1';
 
 const COLORS = { '出發':'#0B6E4F', '打卡':'#C99A1E', '收工':'#1F2622' };
 const $ = function(id){ return document.getElementById(id); };
@@ -308,7 +308,7 @@ function drawFeed(){
   const shown = sel === null ? DAYS.slice().reverse() : [dayOf(sel)].filter(Boolean);
   if (!shown.length) {
     $('list').innerHTML = '<p class="empty">陳地瓜 ' + startLabel() +
-      '從台北出發，順時針徒步環島一圈。<br>上路之後，這裡會長出一條路——每天走到哪、' +
+      '從台南出發，順時針徒步環島一圈。<br>上路之後，這裡會長出一條路——每天走到哪、' +
       '沿途拍了什麼，都會留在這頁。</p>';
     return;
   }
