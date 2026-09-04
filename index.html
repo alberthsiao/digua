@@ -7,6 +7,9 @@
 <title>陳地瓜走到哪</title>
 <meta property="og:title" content="陳地瓜走到哪">
 <meta property="og:description" content="陳地瓜正在徒步環島。這裡有他現在的位置、每天走過的路，和沿路拍的照片。">
+<meta property="og:image" content="https://alberthsiao.github.io/digua/icons/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="icons/digua.png">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
 :root{
@@ -93,10 +96,15 @@ body{
 .empty{color:var(--mute);font-size:16px;line-height:1.8;padding:16px 0}
 
 .pin{border-radius:50%;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.avatar{
+  width:100%;height:100%;border-radius:50%;display:block;
+  border:3px solid #fff;box-shadow:0 3px 10px rgba(31,38,34,.42);
+  background:var(--paper)
+}
 .here{position:relative}
 .here::after{
-  content:"";position:absolute;inset:-9px;border-radius:50%;
-  border:2px solid var(--brick);animation:ping 2.4s ease-out infinite
+  content:"";position:absolute;inset:-8px;border-radius:50%;
+  border:2.5px solid var(--brick);animation:ping 2.4s ease-out infinite
 }
 @keyframes ping{0%{transform:scale(.6);opacity:1}100%{transform:scale(1.4);opacity:0}}
 @media (prefers-reduced-motion:reduce){.here::after{animation:none;opacity:.5}}
@@ -143,8 +151,8 @@ body{
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 // ⚠ 換成你的 GAS 網頁應用程式網址（.../exec）
-const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R1.1';
+const API_URL = 'https://script.google.com/macros/s/請填入你的部署ID/exec';
+const BUILD = 'R1.2';
 
 const COLORS = { '出發':'#0B6E4F', '休息':'#C99A1E', '收工':'#1F2622', '報平安':'#B4472E' };
 const $ = function(id){ return document.getElementById(id); };
@@ -253,14 +261,15 @@ function drawMap(){
   const newest = (DATA.points || [])[(DATA.points || []).length - 1];
   pts.forEach(function(p){
     const isNow = newest && p.t === newest.t;
-    const size = isNow ? 20 : 11;
+    const size = isNow ? 48 : 11;
+    const html = isNow
+      ? '<div class="here" style="width:48px;height:48px">' +
+        '<img class="avatar" src="icons/digua.png" alt="陳地瓜"></div>'
+      : '<div class="pin" style="width:11px;height:11px;background:' +
+        (COLORS[p.type] || '#1F2622') + '"></div>';
     L.marker([p.lat, p.lng], {
-      icon: L.divIcon({
-        className: '',
-        html: '<div class="pin ' + (isNow ? 'here' : '') + '" style="width:' + size + 'px;height:' +
-              size + 'px;background:' + (COLORS[p.type] || '#1F2622') + '"></div>',
-        iconSize: [size, size], iconAnchor: [size / 2, size / 2]
-      })
+      zIndexOffset: isNow ? 1000 : 0,
+      icon: L.divIcon({ className:'', html:html, iconSize:[size,size], iconAnchor:[size/2, size/2] })
     }).bindPopup(popup(p), { maxWidth:250 }).addTo(layer);
   });
 
