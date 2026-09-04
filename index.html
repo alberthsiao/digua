@@ -263,7 +263,7 @@ function drawMap(){
     const isNow = newest && p.t === newest.t;
     const size = isNow ? 48 : 11;
     const html = isNow
-      ? '<div class="here" style="width:48px;height:48px">' +
+      ? '<div class="here" style="width:96px;height:96px">' +
         '<img class="avatar" src="icons/digua.png" alt="陳地瓜"></div>'
       : '<div class="pin" style="width:11px;height:11px;background:' +
         (COLORS[p.type] || '#1F2622') + '"></div>';
