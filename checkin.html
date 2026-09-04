@@ -12,7 +12,7 @@
 :root{
   --paper:#F7F5EF; --ink:#1F2622; --sign:#0B6E4F; --paint:#F4E04D;
   --brick:#B4472E; --dust:#C9C3B2; --mute:#6B6F68;
-  --BUILD:"R1.3";
+  --BUILD:"R1.5";
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%}
@@ -27,19 +27,18 @@ header{display:flex;align-items:baseline;gap:10px;padding:18px 2px 14px}
 header b{font-size:15px;font-weight:800;color:var(--sign);letter-spacing:.02em}
 header span{font-size:13px;color:var(--mute)}
 
-.grid{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:12px;min-height:0}
+.grid{flex:1;display:grid;grid-template-rows:1fr 1fr 1fr;gap:12px;min-height:0}
 .act{
-  border:0;border-radius:14px;font-family:inherit;font-size:30px;font-weight:800;
+  border:0;border-radius:14px;font-family:inherit;font-size:40px;font-weight:800;
   letter-spacing:.06em;display:flex;flex-direction:column;justify-content:center;
   align-items:center;gap:6px;cursor:pointer;transition:transform .08s ease;
 }
-.act small{font-size:12px;font-weight:600;letter-spacing:.02em;opacity:.72}
+.act small{font-size:13px;font-weight:600;letter-spacing:.02em;opacity:.75}
 .act:active{transform:scale(.97)}
 .act:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
 .go{background:var(--sign);color:#fff}
-.rest{background:var(--paint);color:var(--ink)}
+.mark{background:var(--paint);color:var(--ink)}
 .done{background:var(--ink);color:var(--paper)}
-.safe{background:var(--brick);color:#fff}
 
 footer{padding:14px 2px 2px;font-size:13px;line-height:1.6;color:var(--mute);min-height:56px}
 footer b{color:var(--ink);font-weight:700}
@@ -97,9 +96,8 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
 
 <div class="grid" id="grid">
   <button class="act go"   data-type="出發">出發<small>寄信給好友</small></button>
-  <button class="act rest" data-type="休息">休息<small>只記錄</small></button>
-  <button class="act done" data-type="收工">收工<small>寄信給好友</small></button>
-  <button class="act safe" data-type="報平安">平安<small>寄信給好友</small></button>
+  <button class="act mark" data-type="打卡">打卡<small>記位置、拍照片</small></button>
+  <button class="act done" data-type="收工">收工<small>寄信給好友，留言就是今天的日記</small></button>
 </div>
 
 <footer id="foot">尚未打卡。</footer>
@@ -124,9 +122,8 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
 <div class="toast" id="toast"></div>
 
 <script>
-// ⚠ 部署後把這行換成你的 GAS 網頁應用程式網址（.../exec）
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R1.3';
+const BUILD = 'R1.5';
 const QKEY = 'digua_queue';
 const TKEY = 'digua_token';
 
@@ -149,6 +146,9 @@ document.querySelectorAll('.act').forEach(function(btn){
     current = { type: btn.dataset.type, photo: null };
     $('panelTitle').textContent = btn.dataset.type;
     $('note').value = '';
+    $('note').placeholder = btn.dataset.type === '收工'
+      ? '今天走得怎麼樣？這段話會變成今天的日記'
+      : '想說的話（可留空）';
     $('pic').value = '';
     $('thumb').hidden = true;
     $('send').disabled = true;
@@ -320,7 +320,7 @@ function uuid(){
 }
 
 // 出發日計算（跟後端同一個日期，改一邊記得改另一邊）
-const START = new Date('2026-09-15T00:00:00+08:00');
+const START = new Date('2026-09-05T00:00:00+08:00');
 $('day').textContent = '第 ' + Math.max(1, Math.floor((Date.now() - START) / 86400000) + 1) + ' 天';
 $('who').textContent = '陳地瓜走到哪　' + BUILD;
 

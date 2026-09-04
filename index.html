@@ -150,11 +150,10 @@ body{
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-// ⚠ 換成你的 GAS 網頁應用程式網址（.../exec）
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R1.3';
+const BUILD = 'R1.5';
 
-const COLORS = { '出發':'#0B6E4F', '休息':'#C99A1E', '收工':'#1F2622', '報平安':'#B4472E' };
+const COLORS = { '出發':'#0B6E4F', '打卡':'#C99A1E', '收工':'#1F2622' };
 const $ = function(id){ return document.getElementById(id); };
 
 const map = L.map('map', { zoomControl:false }).setView([23.7, 121.0], 7);
@@ -283,7 +282,7 @@ function drawHead(){
   const g = sel === null ? null : dayOf(sel);
   document.querySelector('.milestone').innerHTML =
     '<div class="km">' + (g ? round1(g.km) : DATA.totalKm) + '<i>km</i></div>' +
-    '<div class="sub">' + (g ? '第 ' + g.no + ' 天' : '全程 ' + DATA.day + ' 天') + '　直線距離</div>';
+    '<div class="sub">' + (g ? '第 ' + g.no + ' 天' : '全程 ' + DATA.day + ' 天') + '　路線距離</div>';
 
   if (!pts.length) { $('place').textContent = '還沒出發'; $('when').textContent = ''; return; }
   const last = pts[pts.length - 1];
@@ -314,7 +313,7 @@ function dayBlock(g){
   } else if (g.to) {
     h += '<p class="route">' + esc(short(g.to)) + '</p>';
   }
-  h += '<p class="stat">直線 ' + round1(g.km) + ' 公里　·　打卡 ' + g.pts.length + ' 次　·　照片 ' +
+  h += '<p class="stat">' + round1(g.km) + ' 公里　·　打卡 ' + g.pts.length + ' 次　·　照片 ' +
        g.pts.filter(function(p){ return p.photo; }).length + ' 張</p>';
 
   if (g.diary) h += '<p class="diary">' + esc(g.diary) + '</p>';
