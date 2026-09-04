@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#F7F5EF">
+<title>追蹤陳地瓜 — 陳地瓜走到哪</title>
+<style>
+:root{--paper:#F7F5EF;--ink:#1F2622;--sign:#0B6E4F;--brick:#B4472E;--dust:#C9C3B2;--mute:#6B6F68}
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;
+  padding:48px 20px 60px;
+}
+.wrap{max-width:460px;margin:0 auto}
+h1{font-size:30px;font-weight:800;line-height:1.3;margin:0 0 10px;letter-spacing:.01em}
+.lede{font-size:16px;line-height:1.8;color:var(--mute);margin:0 0 30px}
+label.f{display:block;font-size:14px;font-weight:700;margin:0 0 6px}
+input[type=email],input[type=text]{
+  width:100%;padding:14px;border:1.5px solid var(--dust);border-radius:10px;
+  font-family:inherit;font-size:17px;background:#fff;color:var(--ink);margin-bottom:20px
+}
+input:focus{outline:none;border-color:var(--sign)}
+.opts{display:grid;gap:10px;margin-bottom:26px}
+.opt{
+  display:flex;gap:12px;align-items:flex-start;padding:15px;
+  border:1.5px solid var(--dust);border-radius:10px;cursor:pointer;background:#fff
+}
+.opt:has(input:checked){border-color:var(--sign);box-shadow:inset 0 0 0 1px var(--sign)}
+.opt input{margin-top:3px;accent-color:var(--sign);width:18px;height:18px}
+.opt b{display:block;font-size:16px}
+.opt span{font-size:14px;color:var(--mute);line-height:1.6}
+button{
+  width:100%;padding:17px;border:0;border-radius:12px;background:var(--sign);color:#fff;
+  font-family:inherit;font-size:17px;font-weight:800;letter-spacing:.04em;cursor:pointer
+}
+button[disabled]{opacity:.5}
+.msg{font-size:16px;line-height:1.8;padding:16px;border-radius:10px;margin-bottom:22px;display:none}
+.msg.ok{display:block;background:#E6F0EA;color:var(--sign)}
+.msg.err{display:block;background:#F6E7E3;color:var(--brick)}
+.back{display:inline-block;margin-top:26px;font-size:15px;color:var(--mute)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="msg" id="msg"></div>
+  <div id="form">
+    <h1>跟著地瓜一起走</h1>
+    <p class="lede">留下 Email，陳地瓜在路上打卡時你就會收到信。隨時可以退訂。</p>
+
+    <label class="f" for="email">Email</label>
+    <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
+
+    <label class="f" for="name">怎麼稱呼你</label>
+    <input type="text" id="name" placeholder="小明" autocomplete="name">
+
+    <div class="opts">
+      <label class="opt">
+        <input type="radio" name="level" value="即時" checked>
+        <span><b>每次都通知</b><span>地瓜出發、收工、報平安時立刻收到，加上每天晚上的摘要。</span></span>
+      </label>
+      <label class="opt">
+        <input type="radio" name="level" value="每日">
+        <span><b>一天一封就好</b><span>只在晚上收到當日摘要：走到哪裡、多少公里、沿路的照片。</span></span>
+      </label>
+    </div>
+
+    <button id="go">開始接收</button>
+  </div>
+  <a class="back" href="index.html">← 回地圖</a>
+</div>
+
+<script>
+// ⚠ 換成你的 GAS 網頁應用程式網址（.../exec）
+const API_URL = 'https://script.google.com/macros/s/請填入你的部署ID/exec';
+const $ = function(id){ return document.getElementById(id); };
+
+function post(payload){
+  return fetch(API_URL, {
+    method:'POST', redirect:'follow',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify(payload)
+  }).then(function(r){ return r.json(); });
+}
+
+function show(kind, text){
+  $('msg').className = 'msg ' + kind;
+  $('msg').textContent = text;
+}
+
+// 退訂模式
+const unsub = new URLSearchParams(location.search).get('unsub');
+if (unsub) {
+  $('form').style.display = 'none';
+  show('ok', '正在處理退訂…');
+  post({ action:'unsub', token:unsub })
+    .then(function(res){
+      if (res && res.ok) show('ok', '已退訂，之後不會再收到信了。');
+      else show('err', '找不到這筆訂閱，可能已經退訂過。');
+    })
+    .catch(function(){ show('err', '連不上伺服器，請稍後再試一次。'); });
+}
+
+$('go').addEventListener('click', function(){
+  const email = $('email').value.trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { show('err', 'Email 看起來不太對，再檢查一下。'); return; }
+  $('go').disabled = true;
+  $('go').textContent = '送出中…';
+
+  post({
+    action:'subscribe', email:email, name:$('name').value.trim(),
+    level: document.querySelector('input[name=level]:checked').value
+  })
+  .then(function(res){
+    if (res && res.ok) {
+      $('form').style.display = 'none';
+      show('ok', res.updated ? '已更新你的通知設定。' : '訂閱成功，收件匣裡有一封確認信。');
+    } else {
+      show('err', (res && res.error) || '送出失敗，請再試一次。');
+      $('go').disabled = false; $('go').textContent = '開始接收';
+    }
+  })
+  .catch(function(){
+    show('err', '連不上伺服器，請稍後再試一次。');
+    $('go').disabled = false; $('go').textContent = '開始接收';
+  });
+});
+</script>
+</body>
+</html>

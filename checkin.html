@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#F7F5EF">
+<title>地瓜打卡</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+:root{
+  --paper:#F7F5EF; --ink:#1F2622; --sign:#0B6E4F; --paint:#F4E04D;
+  --brick:#B4472E; --dust:#C9C3B2; --mute:#6B6F68;
+  --BUILD:"R1.1";
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%}
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;
+  display:flex; flex-direction:column;
+  padding:env(safe-area-inset-top) 16px calc(env(safe-area-inset-bottom) + 12px);
+}
+
+header{display:flex;align-items:baseline;gap:10px;padding:18px 2px 14px}
+header b{font-size:15px;font-weight:800;color:var(--sign);letter-spacing:.02em}
+header span{font-size:13px;color:var(--mute)}
+
+.grid{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:12px;min-height:0}
+.act{
+  border:0;border-radius:14px;font-family:inherit;font-size:30px;font-weight:800;
+  letter-spacing:.06em;display:flex;flex-direction:column;justify-content:center;
+  align-items:center;gap:6px;cursor:pointer;transition:transform .08s ease;
+}
+.act small{font-size:12px;font-weight:600;letter-spacing:.02em;opacity:.72}
+.act:active{transform:scale(.97)}
+.act:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
+.go{background:var(--sign);color:#fff}
+.rest{background:var(--paint);color:var(--ink)}
+.done{background:var(--ink);color:var(--paper)}
+.safe{background:var(--brick);color:#fff}
+
+footer{padding:14px 2px 2px;font-size:13px;line-height:1.6;color:var(--mute);min-height:56px}
+footer b{color:var(--ink);font-weight:700}
+.pending{color:var(--brick);font-weight:700}
+
+/* 送出面板 */
+.sheet{
+  position:fixed;inset:0;background:rgba(31,38,34,.5);
+  display:none;align-items:flex-end;z-index:20;
+}
+.sheet.on{display:flex}
+.panel{
+  width:100%;background:var(--paper);border-radius:18px 18px 0 0;
+  padding:22px 18px calc(env(safe-area-inset-bottom) + 18px);
+}
+.panel h2{margin:0 0 4px;font-size:26px;font-weight:800;letter-spacing:.04em}
+.fix{font-size:13px;color:var(--mute);margin:0 0 16px;min-height:20px}
+.fix.bad{color:var(--brick);font-weight:600}
+textarea{
+  width:100%;min-height:76px;padding:12px;border:1.5px solid var(--dust);
+  border-radius:10px;font-family:inherit;font-size:17px;background:#fff;color:var(--ink);resize:none;
+}
+textarea:focus{outline:none;border-color:var(--sign)}
+.photo{display:flex;align-items:center;gap:12px;margin:12px 0 18px}
+.photo label{
+  border:1.5px dashed var(--dust);border-radius:10px;padding:11px 16px;
+  font-size:15px;font-weight:600;cursor:pointer;color:var(--mute)
+}
+.photo img{width:56px;height:56px;object-fit:cover;border-radius:8px}
+input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
+.row{display:flex;gap:10px}
+.row button{
+  flex:1;padding:17px;border:0;border-radius:12px;font-family:inherit;
+  font-size:18px;font-weight:800;letter-spacing:.05em;cursor:pointer
+}
+.cancel{background:transparent;color:var(--mute);box-shadow:inset 0 0 0 1.5px var(--dust)}
+.send{background:var(--sign);color:#fff;flex:2}
+.send[disabled]{opacity:.45}
+
+.toast{
+  position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 20px);
+  background:var(--ink);color:var(--paper);padding:14px 16px;border-radius:12px;
+  font-size:15px;font-weight:600;z-index:40;display:none
+}
+.toast.on{display:block}
+.gate{padding:60px 4px;font-size:16px;line-height:1.8;color:var(--mute)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <b id="day">環島</b><span id="who"></span>
+</header>
+
+<div class="grid" id="grid">
+  <button class="act go"   data-type="出發">出發<small>寄信給好友</small></button>
+  <button class="act rest" data-type="休息">休息<small>只記錄</small></button>
+  <button class="act done" data-type="收工">收工<small>寄信給好友</small></button>
+  <button class="act safe" data-type="報平安">平安<small>寄信給好友</small></button>
+</div>
+
+<footer id="foot">尚未打卡。</footer>
+
+<div class="sheet" id="sheet">
+  <div class="panel">
+    <h2 id="panelTitle">出發</h2>
+    <p class="fix" id="fix">正在定位…</p>
+    <textarea id="note" placeholder="想說的話（可留空）"></textarea>
+    <div class="photo">
+      <label for="pic">加一張照片</label>
+      <input type="file" id="pic" accept="image/*" capture="environment">
+      <img id="thumb" hidden alt="預覽">
+    </div>
+    <div class="row">
+      <button class="cancel" id="cancel">取消</button>
+      <button class="send" id="send" disabled>送出</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ⚠ 部署後把這行換成你的 GAS 網頁應用程式網址（.../exec）
+const API_URL = 'https://script.google.com/macros/s/請填入你的部署ID/exec';
+const BUILD = 'R1.1';
+const QKEY = 'digua_queue';
+const TKEY = 'digua_token';
+
+const $ = function(id){ return document.getElementById(id); };
+let token = new URLSearchParams(location.search).get('t') || localStorage.getItem(TKEY) || '';
+if (token) localStorage.setItem(TKEY, token);
+
+if (!token) {
+  document.body.innerHTML = '<div class="gate">這個網址少了通行碼。<br>請用完整的連結開啟，' +
+    '然後「加入主畫面」，之後就不用再輸入。</div>';
+  throw new Error('no token');
+}
+
+let current = null;   // {type, lat, lng, acc, battery, photo}
+let watchId = null;
+
+// ── 打卡流程 ──────────────────────────────
+document.querySelectorAll('.act').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    current = { type: btn.dataset.type, photo: null };
+    $('panelTitle').textContent = btn.dataset.type;
+    $('note').value = '';
+    $('pic').value = '';
+    $('thumb').hidden = true;
+    $('send').disabled = true;
+    $('fix').textContent = '正在定位…';
+    $('fix').classList.remove('bad');
+    $('sheet').classList.add('on');
+    locate();
+    readBattery();
+  });
+});
+
+$('cancel').addEventListener('click', closeSheet);
+$('sheet').addEventListener('click', function(e){ if (e.target === $('sheet')) closeSheet(); });
+
+function closeSheet(){
+  $('sheet').classList.remove('on');
+  if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  current = null;
+}
+
+function locate(){
+  if (!navigator.geolocation) { fixFail('這台裝置沒有定位功能'); return; }
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  // 用 watchPosition：第一次讀數常常誤差很大，多等幾秒會收斂
+  watchId = navigator.geolocation.watchPosition(function(p){
+    current.lat = p.coords.latitude;
+    current.lng = p.coords.longitude;
+    current.acc = p.coords.accuracy;
+    $('fix').classList.remove('bad');
+    $('fix').textContent = '已定位，誤差約 ' + Math.round(p.coords.accuracy) + ' 公尺';
+    $('send').disabled = false;
+    if (p.coords.accuracy <= 30 && watchId !== null) {
+      navigator.geolocation.clearWatch(watchId); watchId = null;
+    }
+  }, function(err){
+    fixFail(err.code === 1 ? '定位被拒絕，請到手機設定開啟瀏覽器的定位權限'
+                           : '收不到定位訊號，換個空曠一點的地方再試');
+  }, { enableHighAccuracy:true, timeout:25000, maximumAge:0 });
+}
+
+function fixFail(msg){
+  $('fix').textContent = msg;
+  $('fix').classList.add('bad');
+  $('send').disabled = true;
+}
+
+function readBattery(){
+  if (!navigator.getBattery) return;
+  navigator.getBattery().then(function(b){
+    if (current) current.battery = Math.round(b.level * 100);
+  }).catch(function(){});
+}
+
+// ── 照片：先壓縮再送 ──────────────────────
+$('pic').addEventListener('change', function(e){
+  const file = e.target.files[0];
+  if (!file) return;
+  const img = new Image();
+  img.onload = function(){
+    const max = 1400;
+    const s = Math.min(1, max / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * s);
+    c.height = Math.round(img.height * s);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const data = c.toDataURL('image/jpeg', 0.72);
+    if (current) current.photo = data;
+    $('thumb').src = data;
+    $('thumb').hidden = false;
+    URL.revokeObjectURL(img.src);
+  };
+  img.src = URL.createObjectURL(file);
+});
+
+// ── 送出 ──────────────────────────────────
+$('send').addEventListener('click', function(){
+  if (!current || current.lat == null) return;
+  const rec = {
+    action:'checkin', token:token, cid:uuid(), ts:new Date().toISOString(),
+    type:current.type, lat:current.lat, lng:current.lng, acc:current.acc,
+    battery:current.battery, note:$('note').value.trim(), photo:current.photo
+  };
+  enqueue(rec);
+  closeSheet();
+  toast(rec.type + '已記錄');
+  render();
+  flush();
+});
+
+// ── 佇列：沒訊號也吞得下 ──────────────────
+function queue(){ try { return JSON.parse(localStorage.getItem(QKEY) || '[]'); } catch(e){ return []; } }
+
+function saveQueue(q){
+  try { localStorage.setItem(QKEY, JSON.stringify(q)); return true; }
+  catch(e){
+    // 空間不足：捨棄照片保住紀錄，位置和時間比照片重要
+    q.forEach(function(r){ r.photo = null; });
+    try { localStorage.setItem(QKEY, JSON.stringify(q)); toast('空間不足，這幾筆的照片沒留住'); return true; }
+    catch(e2){ return false; }
+  }
+}
+
+function enqueue(rec){ const q = queue(); q.push(rec); saveQueue(q); }
+
+let flushing = false;
+function flush(){
+  if (flushing) return;
+  const q = queue();
+  if (!q.length) return;
+  flushing = true;
+  const rec = q[0];
+  fetch(API_URL, {
+    method:'POST', redirect:'follow',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify(rec)
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(res){
+    flushing = false;
+    if (res && res.ok) {
+      const rest = queue().filter(function(x){ return x.cid !== rec.cid; });
+      saveQueue(rest);
+      localStorage.setItem('digua_last', JSON.stringify({
+        type: rec.type, ts: rec.ts, addr: res.addr || ''
+      }));
+      render();
+      flush();
+    } else {
+      toast('伺服器回報：' + ((res && res.error) || '未知錯誤'));
+      render();
+    }
+  })
+  .catch(function(){ flushing = false; render(); });
+}
+
+window.addEventListener('online', flush);
+document.addEventListener('visibilitychange', function(){ if (!document.hidden) flush(); });
+
+// ── 畫面狀態 ──────────────────────────────
+function render(){
+  const n = queue().length;
+  let last = null;
+  try { last = JSON.parse(localStorage.getItem('digua_last')); } catch(e){}
+
+  let html = '';
+  if (last) {
+    const d = new Date(last.ts);
+    html += '上次打卡 <b>' + last.type + '</b>　' +
+            d.toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+    if (last.addr) html += '<br>' + last.addr;
+  } else {
+    html += '尚未打卡。';
+  }
+  if (n) html += '<br><span class="pending">還有 ' + n + ' 筆等訊號，回到有網路的地方會自動補送</span>';
+  $('foot').innerHTML = html;
+}
+
+function toast(msg){
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('on');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(function(){ t.classList.remove('on'); }, 2600);
+}
+
+function uuid(){
+  if (crypto.randomUUID) return crypto.randomUUID();
+  return 'x' + Date.now() + Math.random().toString(16).slice(2);
+}
+
+// 出發日計算（跟後端同一個日期，改一邊記得改另一邊）
+const START = new Date('2026-09-15T00:00:00+08:00');
+$('day').textContent = '第 ' + Math.max(1, Math.floor((Date.now() - START) / 86400000) + 1) + ' 天';
+$('who').textContent = '陳地瓜走到哪　' + BUILD;
+
+render();
+flush();
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function(){});
+</script>
+</body>
+</html>

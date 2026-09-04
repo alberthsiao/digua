@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0B6E4F">
+<title>陳地瓜走到哪</title>
+<meta property="og:title" content="陳地瓜走到哪">
+<meta property="og:description" content="陳地瓜正在徒步環島。這裡有他現在的位置、每天走過的路，和沿路拍的照片。">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{
+  --paper:#F7F5EF; --ink:#1F2622; --sign:#0B6E4F; --paint:#F4E04D;
+  --brick:#B4472E; --dust:#C9C3B2; --mute:#6B6F68;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:var(--paper);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;
+  display:flex;flex-direction:column;
+}
+
+#map{height:48vh;min-height:250px;background:var(--dust);z-index:0;position:relative;flex:none}
+
+.milestone{
+  position:absolute;left:12px;top:12px;z-index:500;
+  background:var(--sign);color:#fff;border-radius:4px;
+  border:2px solid #fff;box-shadow:0 2px 10px rgba(31,38,34,.28);padding:9px 15px 10px;
+}
+.milestone .km{font-size:31px;font-weight:800;line-height:1;letter-spacing:-.01em}
+.milestone .km i{font-style:normal;font-size:14px;font-weight:700;margin-left:3px}
+.milestone .sub{font-size:12px;opacity:.85;margin-top:3px}
+
+.days{
+  display:flex;gap:7px;overflow-x:auto;padding:12px 16px;flex:none;
+  background:var(--paper);border-bottom:1px solid var(--dust);
+  -webkit-overflow-scrolling:touch;scrollbar-width:none;
+}
+.days::-webkit-scrollbar{display:none}
+.chip{
+  flex:none;border:1.5px solid var(--dust);background:#fff;border-radius:5px;
+  padding:7px 11px;font-family:inherit;font-size:13px;font-weight:700;color:var(--mute);
+  cursor:pointer;white-space:nowrap;line-height:1.35;text-align:center
+}
+.chip em{display:block;font-style:normal;font-size:11px;font-weight:600;opacity:.75;margin-top:1px}
+.chip[aria-pressed=true]{background:var(--sign);border-color:var(--sign);color:#fff}
+.chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+.scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.feed{padding:20px 18px 40px}
+
+@media(min-width:900px){
+  body{flex-direction:row}
+  .left{flex:1.5;display:flex;flex-direction:column;height:100vh}
+  #map{height:100%;flex:1}
+  .right{flex:1;max-width:540px;display:flex;flex-direction:column;height:100vh;border-left:1px solid var(--dust)}
+}
+
+.now{border-bottom:2px solid var(--ink);padding-bottom:16px;margin-bottom:22px}
+.now .label{font-size:12px;font-weight:800;letter-spacing:.1em;color:var(--sign)}
+.now .place{font-size:26px;font-weight:800;line-height:1.28;margin:5px 0 4px}
+.now .when{font-size:14px;color:var(--mute)}
+
+.day{margin-bottom:34px}
+.dayhead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px}
+.dayhead .n{font-size:23px;font-weight:800;letter-spacing:-.01em}
+.dayhead .date{font-size:14px;color:var(--mute)}
+.route{font-size:15px;font-weight:600;line-height:1.6;margin:2px 0 6px}
+.route span{color:var(--dust);font-weight:800;margin:0 5px}
+.stat{font-size:13px;color:var(--mute);margin-bottom:14px;font-variant-numeric:tabular-nums}
+.diary{
+  font-size:16.5px;line-height:1.85;background:#fff;border-radius:10px;
+  padding:15px 16px;margin:0 0 18px;border-left:4px solid var(--paint)
+}
+
+.entry{display:grid;grid-template-columns:50px 1fr;gap:12px;padding-bottom:20px}
+.entry .t{font-size:13.5px;color:var(--mute);padding-top:3px;font-variant-numeric:tabular-nums}
+.entry .body{border-left:3px solid var(--dust);padding-left:13px}
+.entry .kind{font-size:12.5px;font-weight:800;letter-spacing:.05em}
+.entry .addr{font-size:16.5px;font-weight:600;margin-top:2px;line-height:1.5}
+.entry .note{font-size:16px;line-height:1.75;margin-top:7px}
+.entry img{
+  width:100%;border-radius:8px;margin-top:11px;display:block;
+  background:var(--dust);cursor:zoom-in;aspect-ratio:4/3;object-fit:cover
+}
+
+.cta{
+  display:block;background:var(--ink);color:var(--paper);text-decoration:none;
+  padding:17px;border-radius:12px;font-size:16px;font-weight:700;text-align:center
+}
+.foot{font-size:12px;color:var(--mute);margin-top:14px;text-align:center}
+.empty{color:var(--mute);font-size:16px;line-height:1.8;padding:16px 0}
+
+.pin{border-radius:50%;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.here{position:relative}
+.here::after{
+  content:"";position:absolute;inset:-9px;border-radius:50%;
+  border:2px solid var(--brick);animation:ping 2.4s ease-out infinite
+}
+@keyframes ping{0%{transform:scale(.6);opacity:1}100%{transform:scale(1.4);opacity:0}}
+@media (prefers-reduced-motion:reduce){.here::after{animation:none;opacity:.5}}
+.leaflet-container{font-family:inherit}
+
+.lb{
+  position:fixed;inset:0;background:rgba(31,38,34,.94);z-index:900;
+  display:none;align-items:center;justify-content:center;padding:16px;cursor:zoom-out
+}
+.lb.on{display:flex}
+.lb img{max-width:100%;max-height:88vh;border-radius:6px}
+.lb .cap{
+  position:absolute;left:0;right:0;bottom:0;
+  padding:16px 20px calc(env(safe-area-inset-bottom) + 18px);
+  color:var(--paper);font-size:14px;line-height:1.6;
+  background:linear-gradient(transparent,rgba(31,38,34,.85))
+}
+</style>
+</head>
+<body>
+
+<div class="left">
+  <div id="map"><div class="milestone"><div class="km">—<i>km</i></div><div class="sub">載入中</div></div></div>
+</div>
+
+<div class="right">
+  <div class="days" id="days"></div>
+  <div class="scroll" id="scroll">
+    <div class="feed">
+      <div class="now">
+        <div class="label" id="label">地瓜現在在</div>
+        <div class="place" id="place">正在讀取…</div>
+        <div class="when" id="when"></div>
+      </div>
+      <div id="list"></div>
+      <a class="cta" href="subscribe.html">用 Email 追地瓜</a>
+      <div class="foot" id="foot"></div>
+    </div>
+  </div>
+</div>
+
+<div class="lb" id="lb"><img id="lbimg" alt=""><div class="cap" id="lbcap"></div></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ⚠ 換成你的 GAS 網頁應用程式網址（.../exec）
+const API_URL = 'https://script.google.com/macros/s/請填入你的部署ID/exec';
+const BUILD = 'R1.1';
+
+const COLORS = { '出發':'#0B6E4F', '休息':'#C99A1E', '收工':'#1F2622', '報平安':'#B4472E' };
+const $ = function(id){ return document.getElementById(id); };
+
+const map = L.map('map', { zoomControl:false }).setView([23.7, 121.0], 7);
+L.control.zoom({ position:'bottomright' }).addTo(map);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom:19, attribution:'&copy; OpenStreetMap'
+}).addTo(map);
+
+const layer = L.layerGroup().addTo(map);
+let DATA = null;      // 後端原始資料
+let DAYS = [];        // 依日期分好的每一天
+let sel = null;       // 選中的第幾天；null = 全程
+let booted = false;   // 是否已完成第一次載入
+let refit = true;     // 這次要不要重新框地圖範圍
+
+function load(){
+  fetch(API_URL + '?api=feed&_=' + Date.now())
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      if (!res || !res.ok) throw new Error('bad');
+      DATA = res.data;
+      DAYS = groupByDay(DATA);
+      if (!booted) { sel = fromHash(); refit = true; booted = true; }
+      if (sel !== null && !dayOf(sel)) sel = null;
+      renderAll();
+      refit = false;
+    })
+    .catch(function(){
+      if (!booted) $('place').textContent = '連不上伺服器，稍後會自動再試';
+    });
+}
+
+function fromHash(){
+  const m = location.hash.match(/^#d(\d+)$/);
+  if (m) return Number(m[1]);
+  if (location.hash === '#all') return null;
+  return DAYS.length ? DAYS[DAYS.length - 1].no : null;   // 預設看最新的一天
+}
+
+function groupByDay(d){
+  const start = new Date(d.startDate + 'T00:00:00+08:00');
+  const buckets = {};
+  (d.points || []).forEach(function(p){
+    const dt = new Date(p.t);
+    const key = dt.getFullYear() + '-' + (dt.getMonth() + 1) + '-' + dt.getDate();
+    if (!buckets[key]) buckets[key] = { key:key, date:dt, pts:[] };
+    buckets[key].pts.push(p);
+  });
+  return Object.keys(buckets).map(function(k){
+    const g = buckets[k];
+    const midnight = new Date(g.date.getFullYear(), g.date.getMonth(), g.date.getDate());
+    g.no = Math.max(1, Math.round((midnight - start) / 86400000) + 1);
+    g.km = g.pts.reduce(function(s, p){ return s + (p.km || 0); }, 0);
+    g.from = g.pts[0].addr || '';
+    g.to = g.pts[g.pts.length - 1].addr || '';
+    // 收工那筆的留言就是當天的日記
+    const wrap = g.pts.filter(function(p){ return p.type === '收工' && p.note; }).pop();
+    g.diary = wrap ? wrap.note : '';
+    g.diaryFrom = wrap || null;
+    return g;
+  }).sort(function(a, b){ return a.date - b.date; });
+}
+
+function renderAll(){ drawChips(); drawMap(); drawHead(); drawFeed(); }
+
+function drawChips(){
+  let html = '<button class="chip" data-d="all" aria-pressed="' + (sel === null) + '">全程<em>' +
+             DAYS.length + ' 天</em></button>';
+  DAYS.slice().reverse().forEach(function(g){
+    html += '<button class="chip" data-d="' + g.no + '" aria-pressed="' + (sel === g.no) +
+            '">第 ' + g.no + ' 天<em>' + (g.date.getMonth() + 1) + '/' + g.date.getDate() + '</em></button>';
+  });
+  $('days').innerHTML = html;
+  $('days').querySelectorAll('.chip').forEach(function(b){
+    b.addEventListener('click', function(){
+      sel = b.dataset.d === 'all' ? null : Number(b.dataset.d);
+      history.replaceState(null, '', sel === null ? '#all' : '#d' + sel);
+      refit = true;
+      renderAll();
+      refit = false;
+      $('scroll').scrollTop = 0;
+    });
+  });
+  const on = $('days').querySelector('[aria-pressed=true]');
+  if (on) on.scrollIntoView({ inline:'center', block:'nearest' });
+}
+
+function drawMap(){
+  layer.clearLayers();
+  const all = (DATA.points || []).map(function(p){ return [p.lat, p.lng]; });
+  const shown = sel === null ? DAYS : [dayOf(sel)].filter(Boolean);
+  const pts = shown.reduce(function(a, g){ return a.concat(g.pts); }, []);
+  const line = pts.map(function(p){ return [p.lat, p.lng]; });
+
+  // 只看某一天時，其餘路線淡淡留著當底
+  if (sel !== null && all.length > 1) {
+    L.polyline(all, { color:'#9AA39C', weight:3, opacity:.5 }).addTo(layer);
+  }
+  if (line.length > 1) {
+    L.polyline(line, { color:'#ffffff', weight:8, opacity:.95 }).addTo(layer);
+    L.polyline(line, { color:'#0B6E4F', weight:3.5 }).addTo(layer);
+  }
+
+  const newest = (DATA.points || [])[(DATA.points || []).length - 1];
+  pts.forEach(function(p){
+    const isNow = newest && p.t === newest.t;
+    const size = isNow ? 20 : 11;
+    L.marker([p.lat, p.lng], {
+      icon: L.divIcon({
+        className: '',
+        html: '<div class="pin ' + (isNow ? 'here' : '') + '" style="width:' + size + 'px;height:' +
+              size + 'px;background:' + (COLORS[p.type] || '#1F2622') + '"></div>',
+        iconSize: [size, size], iconAnchor: [size / 2, size / 2]
+      })
+    }).bindPopup(popup(p), { maxWidth:250 }).addTo(layer);
+  });
+
+  if (refit && line.length) {
+    map.fitBounds(L.latLngBounds(line).pad(line.length > 1 ? 0.25 : 3));
+  }
+}
+
+function drawHead(){
+  const pts = DATA.points || [];
+  const g = sel === null ? null : dayOf(sel);
+  document.querySelector('.milestone').innerHTML =
+    '<div class="km">' + (g ? round1(g.km) : DATA.totalKm) + '<i>km</i></div>' +
+    '<div class="sub">' + (g ? '第 ' + g.no + ' 天' : '全程 ' + DATA.day + ' 天') + '　直線距離</div>';
+
+  if (!pts.length) { $('place').textContent = '還沒出發'; $('when').textContent = ''; return; }
+  const last = pts[pts.length - 1];
+  $('label').textContent = last.type === '收工' ? '今天走到這裡' : '地瓜現在在';
+  $('place').textContent = short(last.addr) || (last.lat.toFixed(4) + ', ' + last.lng.toFixed(4));
+  $('when').textContent = fullTime(last.t) + '　' + ago(last.t);
+  $('foot').textContent = '最後更新 ' + hhmm(DATA.updated) + '　·　' + BUILD;
+}
+
+function drawFeed(){
+  const shown = sel === null ? DAYS.slice().reverse() : [dayOf(sel)].filter(Boolean);
+  if (!shown.length) {
+    $('list').innerHTML = '<p class="empty">地瓜還沒出發。上路之後，這裡會長出一條路。</p>';
+    return;
+  }
+  $('list').innerHTML = shown.map(dayBlock).join('');
+  $('list').querySelectorAll('img[data-full]').forEach(function(img){
+    img.addEventListener('click', function(){ openLb(img.dataset.full, img.dataset.cap); });
+  });
+}
+
+function dayBlock(g){
+  let h = '<section class="day"><div class="dayhead"><span class="n">第 ' + g.no + ' 天</span>' +
+          '<span class="date">' + longDate(g.date) + '</span></div>';
+
+  if (g.from && g.to && short(g.from) !== short(g.to)) {
+    h += '<p class="route">' + esc(short(g.from)) + '<span>→</span>' + esc(short(g.to)) + '</p>';
+  } else if (g.to) {
+    h += '<p class="route">' + esc(short(g.to)) + '</p>';
+  }
+  h += '<p class="stat">直線 ' + round1(g.km) + ' 公里　·　打卡 ' + g.pts.length + ' 次　·　照片 ' +
+       g.pts.filter(function(p){ return p.photo; }).length + ' 張</p>';
+
+  if (g.diary) h += '<p class="diary">' + esc(g.diary) + '</p>';
+
+  g.pts.forEach(function(p){
+    const showNote = p.note && p !== g.diaryFrom;
+    h += '<div class="entry"><div class="t">' + hhmm(p.t) + '</div>' +
+         '<div class="body" style="border-color:' + (COLORS[p.type] || '#C9C3B2') + '">' +
+         '<div class="kind" style="color:' + (COLORS[p.type] || '#1F2622') + '">' + esc(p.type) + '</div>' +
+         '<div class="addr">' + (esc(short(p.addr)) || '—') + '</div>' +
+         (showNote ? '<div class="note">' + esc(p.note) + '</div>' : '') +
+         (p.photo ? '<img loading="lazy" src="' + p.photo + '" data-full="' + p.photo +
+                    '" data-cap="第 ' + g.no + ' 天　' + hhmm(p.t) + '　' + esc(short(p.addr)) +
+                    '" alt="' + esc(short(p.addr)) + '">' : '') +
+         '</div></div>';
+  });
+  return h + '</section>';
+}
+
+function openLb(src, cap){
+  $('lbimg').src = src;
+  $('lbcap').textContent = cap || '';
+  $('lb').classList.add('on');
+}
+function closeLb(){ $('lb').classList.remove('on'); $('lbimg').src = ''; }
+$('lb').addEventListener('click', closeLb);
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeLb(); });
+
+function dayOf(no){ return DAYS.filter(function(g){ return g.no === no; })[0]; }
+function round1(n){ return Math.round(n * 10) / 10; }
+function short(a){ return String(a == null ? '' : a).replace(/^台灣省?/, '').replace(/^\d{3,5}\s*/, ''); }
+function popup(p){
+  return '<b>' + esc(p.type) + '</b>　' + hhmm(p.t) + '<br>' + esc(short(p.addr)) +
+         (p.note ? '<br>' + esc(p.note) : '') +
+         (p.photo ? '<br><img src="' + p.photo + '" style="width:100%;margin-top:6px;border-radius:5px">' : '');
+}
+function hhmm(iso){
+  return new Date(iso).toLocaleTimeString('zh-TW', { hour:'2-digit', minute:'2-digit', hour12:false });
+}
+function fullTime(iso){
+  return new Date(iso).toLocaleString('zh-TW', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:false });
+}
+function longDate(d){
+  return d.toLocaleDateString('zh-TW', { month:'long', day:'numeric', weekday:'short' });
+}
+function ago(iso){
+  const m = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (m < 2) return '剛剛';
+  if (m < 60) return m + ' 分鐘前';
+  const h = Math.round(m / 60);
+  if (h < 24) return h + ' 小時前';
+  return Math.round(h / 24) + ' 天前';
+}
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c];
+  });
+}
+
+load();
+setInterval(function(){ if (!document.hidden) load(); }, 60000);
+</script>
+</body>
+</html>
