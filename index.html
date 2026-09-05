@@ -200,7 +200,7 @@ body{
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R2.8';
+const BUILD = 'R2.9';
 
 const COLORS = { '出發':'#0B6E4F', '打卡':'#C99A1E', '休息':'#6E8090', '收工':'#1F2622' };
 const $ = function(id){ return document.getElementById(id); };
@@ -218,6 +218,11 @@ let sel = null;       // 選中的第幾天；null = 全程
 let booted = false;   // 是否已完成第一次載入
 let refit = true;     // 這次要不要重新框地圖範圍
 
+function typing(){
+  const a = document.activeElement;
+  return !!(a && (a.id === 'mText' || a.id === 'mName'));
+}
+
 function load(){
   fetch(API_URL + '?api=feed&_=' + Date.now())
     .then(function(r){ return r.json(); })
@@ -227,6 +232,7 @@ function load(){
       DAYS = groupByDay(DATA);
       if (!booted) { sel = fromHash(); refit = true; booted = true; }
       if (sel !== null && typeof sel !== 'string' && !dayOf(sel)) sel = null;
+      if (typing()) { drawBoard(); return; }   // 打字中只補留言，其餘不動
       renderAll();
       refit = false;
     })
@@ -445,26 +451,34 @@ function photoCount(){
 
 function drawBoard(){
   const list = DATA.msgs || [];
-  let html = '<div class="board"><div class="compose">' +
-    '<input id="mName" maxlength="20" placeholder="你的名字" autocomplete="name" value="' +
-      esc(localStorage.getItem('digua_name') || '') + '">' +
-    '<textarea id="mText" maxlength="300" placeholder="想跟地瓜說的話。他每次打卡都看得到。"></textarea>' +
-    '<button id="mGo">留言給地瓜</button>' +
-    '<p class="hint" id="mHint">留言是公開的，所有人都看得到。</p>' +
-    '</div>';
+
+  // 輸入框只建一次。每 60 秒的自動更新只換下面的留言，
+  // 不碰上面的表單，打到一半才不會被洗掉。
+  if (!document.getElementById('mList')) {
+    $('list').innerHTML =
+      '<div class="board"><div class="compose">' +
+      '<input id="mName" maxlength="20" placeholder="你的名字" autocomplete="name" value="' +
+        esc(localStorage.getItem('digua_name') || '') + '">' +
+      '<textarea id="mText" maxlength="300" placeholder="想跟地瓜說的話。他每次打卡都看得到。"></textarea>' +
+      '<button id="mGo">留言給地瓜</button>' +
+      '<p class="hint" id="mHint">留言是公開的，所有人都看得到。</p>' +
+      '</div><div id="mList"></div></div>';
+    $('mGo').addEventListener('click', sendMsg);
+    $('mText').addEventListener('input', function(){
+      $('mHint').className = 'hint';
+      $('mHint').textContent = '留言是公開的，所有人都看得到。';
+    });
+  }
 
   if (!list.length) {
-    html += '<p class="empty">還沒有人留言。第一句話留給你。</p>';
-  } else {
-    html += list.slice().reverse().map(function(m){
-      return '<div class="msg"><div class="who">' + esc(m.name) +
-             '<span>' + fullTime(m.t) + '</span></div>' +
-             '<div class="txt">' + esc(m.text) + '</div></div>';
-    }).join('');
+    $('mList').innerHTML = '<p class="empty">還沒有人留言。第一句話留給你。</p>';
+    return;
   }
-  $('list').innerHTML = html + '</div>';
-
-  $('mGo').addEventListener('click', sendMsg);
+  $('mList').innerHTML = list.slice().reverse().map(function(m){
+    return '<div class="msg"><div class="who">' + esc(m.name) +
+           '<span>' + fullTime(m.t) + '</span></div>' +
+           '<div class="txt">' + esc(m.text) + '</div></div>';
+  }).join('');
 }
 
 function sendMsg(){
@@ -487,7 +501,16 @@ function sendMsg(){
   })
   .then(function(r){ return r.json(); })
   .then(function(res){
-    if (res && res.ok) { $('mText').value = ''; refit = false; load(); }
+    if (res && res.ok) {
+      $('mText').value = '';
+      $('mText').blur();
+      $('mGo').disabled = false;
+      $('mGo').textContent = '留言給地瓜';
+      $('mHint').className = 'hint';
+      $('mHint').textContent = '留言送出了，地瓜下次打卡就會看到。';
+      refit = false;
+      load();
+    }
     else {
       hint.className = 'hint err';
       hint.textContent = (res && res.error) || '送出失敗，再試一次。';
