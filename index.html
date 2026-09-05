@@ -100,6 +100,31 @@ body{
   background:var(--dust);cursor:zoom-in;aspect-ratio:4/3;object-fit:cover
 }
 
+.board{margin-bottom:24px}
+.compose{background:#fff;border-radius:12px;padding:15px 16px 16px;margin-bottom:22px}
+.compose input,.compose textarea{
+  width:100%;padding:11px 12px;border:1.5px solid var(--dust);border-radius:9px;
+  font-family:inherit;font-size:16px;background:var(--paper);color:var(--ink);margin-bottom:9px
+}
+.compose textarea{min-height:78px;resize:none;line-height:1.6}
+.compose input:focus,.compose textarea:focus{outline:none;border-color:var(--sign)}
+.compose button{
+  width:100%;padding:14px;border:0;border-radius:10px;background:var(--sign);color:#fff;
+  font-family:inherit;font-size:16px;font-weight:800;letter-spacing:.04em;cursor:pointer
+}
+.compose button[disabled]{opacity:.5}
+.compose .hint{font-size:13px;color:var(--mute);margin:10px 2px 0;line-height:1.6}
+.compose .err{color:var(--brick);font-weight:700}
+
+.msg{padding:0 0 20px}
+.msg .who{font-size:15px;font-weight:800}
+.msg .who span{font-weight:600;color:var(--mute);font-size:13px;margin-left:8px}
+.msg .txt{
+  font-size:16px;line-height:1.75;margin-top:5px;background:#fff;
+  border-radius:10px;padding:12px 14px;border-left:4px solid var(--paint);
+  white-space:pre-wrap;word-break:break-word
+}
+
 .wall{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin:0 -18px 24px}
 .wall img{
   width:100%;aspect-ratio:1;object-fit:cover;display:block;
@@ -175,7 +200,7 @@ body{
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R2.7';
+const BUILD = 'R2.8';
 
 const COLORS = { '出發':'#0B6E4F', '打卡':'#C99A1E', '休息':'#6E8090', '收工':'#1F2622' };
 const $ = function(id){ return document.getElementById(id); };
@@ -201,7 +226,7 @@ function load(){
       DATA = res.data;
       DAYS = groupByDay(DATA);
       if (!booted) { sel = fromHash(); refit = true; booted = true; }
-      if (sel !== null && sel !== 'wall' && !dayOf(sel)) sel = null;
+      if (sel !== null && typeof sel !== 'string' && !dayOf(sel)) sel = null;
       renderAll();
       refit = false;
     })
@@ -214,6 +239,7 @@ function fromHash(){
   const m = location.hash.match(/^#d(\d+)$/);
   if (m) return Number(m[1]);
   if (location.hash === '#photos') return 'wall';
+  if (location.hash === '#board') return 'board';
   if (location.hash === '#all') return null;
   return DAYS.length ? DAYS[DAYS.length - 1].no : null;   // 預設看最新的一天
 }
@@ -286,7 +312,10 @@ function renderAll(){ drawChips(); drawMap(); drawHead(); drawFeed(); }
 
 function drawChips(){
   const shots = photoCount();
-  let html = '<button class="chip" data-d="wall" aria-pressed="' + (sel === 'wall') + '">照片<em>' +
+  const msgs = (DATA.msgs || []).length;
+  let html = '<button class="chip" data-d="board" aria-pressed="' + (sel === 'board') + '">留言<em>' +
+             msgs + ' 則</em></button>' +
+             '<button class="chip" data-d="wall" aria-pressed="' + (sel === 'wall') + '">照片<em>' +
              shots + ' 張</em></button>' +
              '<button class="chip" data-d="all" aria-pressed="' + (sel === null) + '">全程<em>' +
              DAYS.length + ' 天</em></button>';
@@ -298,9 +327,10 @@ function drawChips(){
   $('days').querySelectorAll('.chip').forEach(function(b){
     b.addEventListener('click', function(){
       sel = b.dataset.d === 'all' ? null
-          : b.dataset.d === 'wall' ? 'wall'
+          : (b.dataset.d === 'wall' || b.dataset.d === 'board') ? b.dataset.d
           : Number(b.dataset.d);
-      history.replaceState(null, '', sel === null ? '#all' : (sel === 'wall' ? '#photos' : '#d' + sel));
+      history.replaceState(null, '',
+        sel === null ? '#all' : sel === 'wall' ? '#photos' : sel === 'board' ? '#board' : '#d' + sel);
       refit = true;
       renderAll();
       refit = false;
@@ -314,12 +344,12 @@ function drawChips(){
 function drawMap(){
   layer.clearLayers();
   const all = (DATA.points || []).map(function(p){ return [p.lat, p.lng]; });
-  const shown = (sel === null || sel === 'wall') ? DAYS : [dayOf(sel)].filter(Boolean);
+  const shown = (sel === null || typeof sel === 'string') ? DAYS : [dayOf(sel)].filter(Boolean);
   const pts = shown.reduce(function(a, g){ return a.concat(g.pts); }, []);
   const line = pts.map(function(p){ return [p.lat, p.lng]; });
 
   // 只看某一天時，其餘路線淡淡留著當底
-  if (sel !== null && sel !== 'wall' && all.length > 1) {
+  if (sel !== null && typeof sel !== 'string' && all.length > 1) {
     L.polyline(all, { color:'#9AA39C', weight:3, opacity:.5 }).addTo(layer);
   }
   if (line.length > 1) {
@@ -349,7 +379,7 @@ function drawMap(){
 
 function drawHead(){
   const pts = DATA.points || [];
-  const g = (sel === null || sel === 'wall') ? null : dayOf(sel);
+  const g = (sel === null || typeof sel === 'string') ? null : dayOf(sel);
   if (!pts.length) {
     document.querySelector('.milestone').innerHTML =
       '<div class="km">0<i>km</i></div><div class="sub">' + startLabel() + '出發</div>';
@@ -393,6 +423,7 @@ function drawHead(){
 
 function drawFeed(){
   if (sel === 'wall') { drawWall(); return; }
+  if (sel === 'board') { drawBoard(); return; }
   const shown = sel === null ? DAYS.slice().reverse() : [dayOf(sel)].filter(Boolean);
   if (!shown.length) {
     $('list').innerHTML = '<p class="empty">陳地瓜 ' + startLabel() +
@@ -410,6 +441,64 @@ function photoCount(){
   return DAYS.reduce(function(n, g){
     return n + g.pts.filter(function(p){ return p.photo; }).length;
   }, 0);
+}
+
+function drawBoard(){
+  const list = DATA.msgs || [];
+  let html = '<div class="board"><div class="compose">' +
+    '<input id="mName" maxlength="20" placeholder="你的名字" autocomplete="name" value="' +
+      esc(localStorage.getItem('digua_name') || '') + '">' +
+    '<textarea id="mText" maxlength="300" placeholder="想跟地瓜說的話。他每次打卡都看得到。"></textarea>' +
+    '<button id="mGo">留言給地瓜</button>' +
+    '<p class="hint" id="mHint">留言是公開的，所有人都看得到。</p>' +
+    '</div>';
+
+  if (!list.length) {
+    html += '<p class="empty">還沒有人留言。第一句話留給你。</p>';
+  } else {
+    html += list.slice().reverse().map(function(m){
+      return '<div class="msg"><div class="who">' + esc(m.name) +
+             '<span>' + fullTime(m.t) + '</span></div>' +
+             '<div class="txt">' + esc(m.text) + '</div></div>';
+    }).join('');
+  }
+  $('list').innerHTML = html + '</div>';
+
+  $('mGo').addEventListener('click', sendMsg);
+}
+
+function sendMsg(){
+  const name = $('mName').value.trim();
+  const text = $('mText').value.trim();
+  const hint = $('mHint');
+  if (!name || !text) {
+    hint.className = 'hint err';
+    hint.textContent = name ? '還沒寫內容。' : '留個名字，地瓜才知道是誰。';
+    return;
+  }
+  localStorage.setItem('digua_name', name);
+  $('mGo').disabled = true;
+  $('mGo').textContent = '送出中…';
+
+  fetch(API_URL, {
+    method:'POST', redirect:'follow',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify({ action:'message', name:name, text:text })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(res){
+    if (res && res.ok) { $('mText').value = ''; refit = false; load(); }
+    else {
+      hint.className = 'hint err';
+      hint.textContent = (res && res.error) || '送出失敗，再試一次。';
+      $('mGo').disabled = false; $('mGo').textContent = '留言給地瓜';
+    }
+  })
+  .catch(function(){
+    hint.className = 'hint err';
+    hint.textContent = '連不上伺服器，等一下再試。';
+    $('mGo').disabled = false; $('mGo').textContent = '留言給地瓜';
+  });
 }
 
 function drawWall(){

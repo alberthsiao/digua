@@ -12,7 +12,7 @@
 :root{
   --paper:#F7F5EF; --ink:#1F2622; --sign:#0B6E4F; --paint:#F4E04D;
   --brick:#B4472E; --dust:#C9C3B2; --mute:#6B6F68;
-  --BUILD:"R2.7";
+  --BUILD:"R2.8";
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%}
@@ -125,6 +125,15 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
 .send{background:var(--sign);color:#fff;flex:2}
 .send[disabled]{opacity:.45}
 
+.msglist{max-height:52vh;overflow-y:auto;margin:14px 0 18px;-webkit-overflow-scrolling:touch}
+.msgitem{padding:0 0 15px}
+.msgitem .who{font-size:14px;font-weight:800}
+.msgitem .who span{font-weight:600;color:var(--mute);font-size:12px;margin-left:7px}
+.msgitem .txt{
+  font-size:16px;line-height:1.7;margin-top:4px;background:#fff;border-radius:10px;
+  padding:11px 13px;border-left:4px solid var(--paint);white-space:pre-wrap;word-break:break-word
+}
+
 .toast{
   position:fixed;left:16px;right:16px;bottom:calc(env(safe-area-inset-bottom) + 20px);
   background:var(--ink);color:var(--paper);padding:14px 16px;border-radius:12px;
@@ -180,11 +189,19 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
   </div>
 </div>
 
+<div class="sheet" id="msgs">
+  <div class="panel">
+    <h2 id="msgsTitle">好友留言</h2>
+    <div class="msglist" id="msgList"></div>
+    <div class="row"><button class="send" id="msgsOk" style="flex:1">看完了</button></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R2.7';
+const BUILD = 'R2.8';
 const QKEY = 'digua_queue';
 const TKEY = 'digua_token';
 
@@ -341,6 +358,7 @@ function flush(){
         Object.assign({ at: Date.now() }, res.today)));
       tick();
       loadWx(rec.lat, rec.lng);
+      if (res.newMsgs && res.newMsgs.length) showMsgs(res.newMsgs);
       render();
       flush();
     } else {
@@ -373,6 +391,24 @@ function render(){
   if (n) html += '<br><span class="pending">還有 ' + n + ' 筆等訊號，回到有網路的地方會自動補送</span>';
   $('foot').innerHTML = html;
   tick();
+}
+
+function showMsgs(list){
+  $('msgsTitle').textContent = list.length === 1 ? '有一則新留言' : '有 ' + list.length + ' 則新留言';
+  $('msgList').innerHTML = list.map(function(m){
+    return '<div class="msgitem"><div class="who">' + esc(m.name) +
+           '<span>' + new Date(m.t).toLocaleString('zh-TW',
+             {month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) + '</span></div>' +
+           '<div class="txt">' + esc(m.text) + '</div></div>';
+  }).join('');
+  $('msgs').classList.add('on');
+}
+$('msgsOk').addEventListener('click', function(){ $('msgs').classList.remove('on'); });
+
+function esc(t){
+  return String(t == null ? '' : t).replace(/[&<>"]/g, function(c){
+    return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c];
+  });
 }
 
 function toast(msg){
