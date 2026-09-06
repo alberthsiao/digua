@@ -12,7 +12,7 @@
 :root{
   --paper:#F7F5EF; --ink:#1F2622; --sign:#0B6E4F; --paint:#F4E04D;
   --brick:#B4472E; --dust:#C9C3B2; --mute:#6B6F68;
-  --BUILD:"R3.2";
+  --BUILD:"R3.5";
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%}
@@ -71,9 +71,8 @@ header{padding:14px 0 12px;flex:none}
 .state{font-size:13px;font-weight:600;color:var(--mute);text-align:right;line-height:1.5}
 
 .grid{flex:1;display:grid;grid-template-rows:1fr 1fr 1fr;gap:10px;min-height:0}
-.pair{display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:0}
 .act{
-  border:0;border-radius:14px;font-family:inherit;font-size:31px;font-weight:800;
+  border:0;border-radius:14px;font-family:inherit;font-size:34px;font-weight:800;
   letter-spacing:.06em;display:flex;flex-direction:column;justify-content:center;
   align-items:center;gap:6px;cursor:pointer;transition:transform .08s ease;
 }
@@ -82,7 +81,6 @@ header{padding:14px 0 12px;flex:none}
 .act:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
 .go{background:var(--sign);color:#fff}
 .mark{background:var(--paint);color:var(--ink)}
-.rest{background:#6E8090;color:#fff}
 .done{background:var(--ink);color:var(--paper)}
 
 footer{padding:14px 2px 2px;font-size:13px;line-height:1.6;color:var(--mute);min-height:56px}
@@ -104,6 +102,16 @@ footer b{color:var(--ink);font-weight:700}
 .panel h2{margin:0 0 4px;font-size:26px;font-weight:800;letter-spacing:.04em}
 .fix{font-size:13px;color:var(--mute);margin:0 0 16px;min-height:20px}
 .fix.bad{color:var(--brick);font-weight:600}
+.kmbox{margin-bottom:12px}
+.kmbox label{display:block;font-size:14px;font-weight:800;margin-bottom:6px}
+.kmbox input{
+  width:100%;padding:13px 12px;border:1.5px solid var(--dust);border-radius:10px;
+  font-family:inherit;font-size:20px;font-weight:700;background:#fff;color:var(--ink);
+  font-variant-numeric:tabular-nums
+}
+.kmbox input:focus{outline:none;border-color:var(--sign)}
+.kmbox p{margin:6px 2px 0;font-size:13px;color:var(--mute);line-height:1.6}
+
 textarea{
   width:100%;min-height:76px;padding:12px;border:1.5px solid var(--dust);
   border-radius:10px;font-family:inherit;font-size:17px;background:#fff;color:var(--ink);resize:none;
@@ -169,11 +177,8 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
 </header>
 
 <div class="grid" id="grid">
-  <div class="pair">
-    <button class="act go"   data-type="出發">出發<small>開始／繼續計時</small></button>
-    <button class="act rest" data-type="休息">休息<small>暫停計時</small></button>
-  </div>
-  <button class="act mark" data-type="打卡">打卡<small>記位置、拍照，不影響計時</small></button>
+  <button class="act go"   data-type="出發">出發<small>開始計時，寄信給好友</small></button>
+  <button class="act mark" data-type="打卡">打卡<small>記位置、拍照，最多 8 張</small></button>
   <button class="act done" data-type="收工">收工<small>今天走完了，留言就是日記</small></button>
 </div>
 
@@ -183,6 +188,11 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
   <div class="panel">
     <h2 id="panelTitle">出發</h2>
     <p class="fix" id="fix">正在定位…</p>
+    <div class="kmbox" id="kmbox" hidden>
+      <label for="km">今天實際走了幾公里？</label>
+      <input type="number" id="km" inputmode="decimal" step="0.1" min="0" max="200" placeholder="例如 28.5">
+      <p>以你填的為準。不填就用打卡點之間推算的。</p>
+    </div>
     <textarea id="note" placeholder="想說的話（可留空）"></textarea>
     <div class="photo">
       <label for="pic" id="picLabel">加照片</label>
@@ -208,7 +218,7 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
 
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R3.2';
+const BUILD = 'R3.5';
 const QKEY = 'digua_queue';
 const TKEY = 'digua_token';
 
@@ -232,9 +242,10 @@ document.querySelectorAll('.act').forEach(function(btn){
     $('panelTitle').textContent = btn.dataset.type;
     $('note').value = '';
     const ph = { '收工':'今天走得怎麼樣？這段話會變成今天的日記',
-                 '休息':'在哪裡休息？吃了什麼？（可留空）',
-                 '出發':'準備好了嗎？（可留空）' };
+                 '出發':'今天要走去哪？（可留空）' };
     $('note').placeholder = ph[btn.dataset.type] || '想說的話（可留空）';
+    $('kmbox').hidden = btn.dataset.type !== '收工';
+    $('km').value = '';
     $('pic').value = '';
     drawThumbs();
     $('send').disabled = true;
@@ -348,6 +359,10 @@ $('send').addEventListener('click', function(){
     type:current.type, lat:current.lat, lng:current.lng, acc:current.acc,
     battery:current.battery, note:$('note').value.trim(), photos:current.photos
   };
+  if (current.type === '收工') {
+    const km = parseFloat($('km').value);
+    if (isFinite(km) && km > 0) rec.km = km;
+  }
   enqueue(rec);
   closeSheet();
   toast(rec.type + '已記錄');
@@ -490,17 +505,11 @@ function tick(){
   }
   if (t.done) {
     box.classList.add('done');
-    setTimer('今天收工', hms(t.walk), t.rest ? '休息 ' + hm(Math.round(t.rest / 60)) : '辛苦了');
-    return;
-  }
-  if (t.resting) {
-    box.classList.add('resting');
-    setTimer('休息中', hms(t.rest),
-             '今天已走 ' + hm(Math.round(t.walk / 60)) + '　按「出發」繼續計時');
+    setTimer('今天收工', hms(t.walk), '辛苦了');
     return;
   }
   box.classList.add('walking');
-  setTimer('步行中', hms(t.walk), t.rest ? '休息 ' + hm(Math.round(t.rest / 60)) : '今天第一段');
+  setTimer('在路上', hms(t.walk), '從出發到現在');
 }
 
 function setTimer(label, clock, note){
