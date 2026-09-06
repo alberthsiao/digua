@@ -50,6 +50,10 @@ body{
 .chip[aria-pressed=true]{background:var(--sign);border-color:var(--sign);color:#fff}
 .chip.city{font-weight:800}
 .chip.day{background:var(--paper);border-style:dashed;font-weight:700}
+.chip .dot{
+  display:inline-block;width:8px;height:8px;border-radius:50%;
+  margin-right:5px;vertical-align:1px
+}
 .chip.mode{background:var(--paper);border-color:var(--ink);color:var(--ink);font-weight:800}
 .chip.day[aria-pressed=true]{background:var(--ink);border-color:var(--ink);border-style:solid;color:#fff}
 .chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
@@ -82,7 +86,7 @@ body{
 .now .place{font-size:26px;font-weight:800;line-height:1.28;margin:5px 0 4px}
 .now .when{font-size:14px;color:var(--mute)}
 
-.day{margin-bottom:34px}
+.day{margin-bottom:34px;padding-left:14px}
 .dayhead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px}
 .dayhead .n{font-size:23px;font-weight:800;letter-spacing:-.01em}
 .dayhead .date{font-size:14px;color:var(--mute)}
@@ -209,7 +213,7 @@ body{
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R3.5';
+const BUILD = 'R3.6';
 
 const COLORS = { '出發':'#0B6E4F', '打卡':'#C99A1E', '休息':'#6E8090', '收工':'#1F2622' };
 const $ = function(id){ return document.getElementById(id); };
@@ -331,6 +335,27 @@ function hm(min){
 }
 
 /** 從「台南市中西區」取出縣市 */
+/**
+ * 每天一個顏色。
+ * 試過沿整趟做色相漸移，但 60 天攤開後相鄰兩天只差 4 度，根本分不出換日。
+ * 改成八色循環：相鄰的日子一定差很多，同色要隔八天才重複，
+ * 而那時他已經走到島的另一邊，地圖上不會誤認。
+ */
+const DAY_COLORS = [
+  '#0B6E4F',  // 深綠
+  '#B4472E',  // 磚紅
+  '#2C5AA0',  // 靛藍
+  '#A8770E',  // 土黃
+  '#6E3A8C',  // 紫
+  '#147C7C',  // 藍綠
+  '#8C2F5B',  // 酒紅
+  '#4A6B1F'   // 橄欖
+];
+
+function dayColor(g){
+  return DAY_COLORS[((g.no || 1) - 1) % DAY_COLORS.length];
+}
+
 function cityOf(addr){
   const m = String(addr || '').match(/^(.{2,3}?[縣市])/);
   return m ? m[1] : '';
@@ -409,7 +434,8 @@ function drawChips(){
     if (openLeg && openLeg.id === L.id) {
       L.days.slice().reverse().forEach(function(g){
         html += '<button class="chip day" data-d="' + g.no + '" aria-pressed="' + (sel === g.no) +
-                '">第 ' + g.no + ' 天<em>' + (g.date.getMonth()+1) + '/' + g.date.getDate() + '</em></button>';
+                '"><span class="dot" style="background:' + dayColor(g) + '"></span>第 ' + g.no +
+                ' 天<em>' + (g.date.getMonth()+1) + '/' + g.date.getDate() + '</em></button>';
       });
     }
   });
@@ -479,9 +505,23 @@ function drawMap(){
   if (sel !== null && sel !== 'wall' && sel !== 'board' && all.length > 1) {
     L.polyline(all, { color:'#9AA39C', weight:3, opacity:.5 }).addTo(layer);
   }
-  if (line.length > 1) {
-    L.polyline(line, { color:'#ffffff', weight:8, opacity:.95 }).addTo(layer);
-    L.polyline(line, { color:'#0B6E4F', weight:3.5 }).addTo(layer);
+  // 逐日上色，白色外框墊底維持在圖磚上的對比
+  shown.forEach(function(g){
+    const seg = g.pts.map(function(p){ return [p.lat, p.lng]; });
+    if (seg.length < 2) return;
+    L.polyline(seg, { color:'#ffffff', weight:8, opacity:.95 }).addTo(layer);
+    L.polyline(seg, { color: dayColor(g), weight:3.8 })
+      .bindTooltip('第 ' + g.no + ' 天　' + round1(g.km) + ' km', { sticky:true })
+      .addTo(layer);
+  });
+
+  // 隔夜的接續用細虛線帶過，不假裝是連續走的
+  for (let i = 1; i < shown.length; i++) {
+    const a = shown[i-1].pts[shown[i-1].pts.length - 1];
+    const b = shown[i].pts[0];
+    if (!a || !b) continue;
+    L.polyline([[a.lat, a.lng], [b.lat, b.lng]],
+      { color:'#9AA39C', weight:2, opacity:.7, dashArray:'4 6' }).addTo(layer);
   }
 
   const newest = (DATA.points || [])[(DATA.points || []).length - 1];
@@ -696,7 +736,9 @@ function photosOf(p){
 }
 
 function dayBlock(g){
-  let h = '<section class="day"><div class="dayhead"><span class="n">第 ' + g.no + ' 天</span>' +
+  let h = '<section class="day" style="border-left:4px solid ' + dayColor(g) +
+          ';padding-left:14px;margin-left:-18px"><div class="dayhead">' +
+          '<span class="n">第 ' + g.no + ' 天</span>' +
           '<span class="date">' + longDate(g.date) + '</span></div>';
 
   if (g.from && g.to && short(g.from) !== short(g.to)) {
