@@ -1,6 +1,6 @@
-/* 環島打卡 Service Worker — BUILD R3.0
+/* 環島打卡 Service Worker — BUILD R3.2
    目的只有一個：沒訊號時打卡頁還打得開，打卡資料由頁面自己排隊補送。 */
-const CACHE = 'digua-R3.0';
+const CACHE = 'digua-R3.2';
 const SHELL = ['checkin.html', 'manifest.json', 'icon-192.png'];
 
 self.addEventListener('install', function (e) {

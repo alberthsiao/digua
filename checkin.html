@@ -12,7 +12,7 @@
 :root{
   --paper:#F7F5EF; --ink:#1F2622; --sign:#0B6E4F; --paint:#F4E04D;
   --brick:#B4472E; --dust:#C9C3B2; --mute:#6B6F68;
-  --BUILD:"R3.0";
+  --BUILD:"R3.2";
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%}
@@ -109,12 +109,19 @@ textarea{
   border-radius:10px;font-family:inherit;font-size:17px;background:#fff;color:var(--ink);resize:none;
 }
 textarea:focus{outline:none;border-color:var(--sign)}
-.photo{display:flex;align-items:center;gap:12px;margin:12px 0 18px}
+.photo{margin:12px 0 18px}
 .photo label{
-  border:1.5px dashed var(--dust);border-radius:10px;padding:11px 16px;
+  display:inline-block;border:1.5px dashed var(--dust);border-radius:10px;padding:11px 16px;
   font-size:15px;font-weight:600;cursor:pointer;color:var(--mute)
 }
-.photo img{width:56px;height:56px;object-fit:cover;border-radius:8px}
+.thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.thumbs figure{position:relative;margin:0}
+.thumbs img{width:64px;height:64px;object-fit:cover;border-radius:8px;display:block}
+.thumbs button{
+  position:absolute;top:-6px;right:-6px;width:22px;height:22px;border:0;border-radius:50%;
+  background:var(--ink);color:var(--paper);font-size:14px;line-height:1;cursor:pointer;
+  font-family:inherit;padding:0
+}
 input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
 .row{display:flex;gap:10px}
 .row button{
@@ -178,9 +185,9 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
     <p class="fix" id="fix">正在定位…</p>
     <textarea id="note" placeholder="想說的話（可留空）"></textarea>
     <div class="photo">
-      <label for="pic">加一張照片</label>
-      <input type="file" id="pic" accept="image/*" capture="environment">
-      <img id="thumb" hidden alt="預覽">
+      <label for="pic" id="picLabel">加照片</label>
+      <input type="file" id="pic" accept="image/*" multiple>
+      <div class="thumbs" id="thumbs"></div>
     </div>
     <div class="row">
       <button class="cancel" id="cancel">取消</button>
@@ -201,7 +208,7 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
 
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R3.0';
+const BUILD = 'R3.2';
 const QKEY = 'digua_queue';
 const TKEY = 'digua_token';
 
@@ -221,7 +228,7 @@ let watchId = null;
 // ── 打卡流程 ──────────────────────────────
 document.querySelectorAll('.act').forEach(function(btn){
   btn.addEventListener('click', function(){
-    current = { type: btn.dataset.type, photo: null };
+    current = { type: btn.dataset.type, photos: [] };
     $('panelTitle').textContent = btn.dataset.type;
     $('note').value = '';
     const ph = { '收工':'今天走得怎麼樣？這段話會變成今天的日記',
@@ -229,7 +236,7 @@ document.querySelectorAll('.act').forEach(function(btn){
                  '出發':'準備好了嗎？（可留空）' };
     $('note').placeholder = ph[btn.dataset.type] || '想說的話（可留空）';
     $('pic').value = '';
-    $('thumb').hidden = true;
+    drawThumbs();
     $('send').disabled = true;
     $('fix').textContent = '正在定位…';
     $('fix').classList.remove('bad');
@@ -281,10 +288,28 @@ function readBattery(){
   }).catch(function(){});
 }
 
-// ── 照片：先壓縮再送 ──────────────────────
+// ── 照片：先壓縮再送，可多張 ────────────────
+const MAX_PHOTOS = 8;
+
 $('pic').addEventListener('change', function(e){
-  const file = e.target.files[0];
-  if (!file) return;
+  const files = Array.prototype.slice.call(e.target.files || []);
+  e.target.value = '';
+  if (!files.length || !current) return;
+
+  const room = MAX_PHOTOS - current.photos.length;
+  if (room <= 0) { toast('一次最多 ' + MAX_PHOTOS + ' 張'); return; }
+  if (files.length > room) toast('這次只收得下 ' + room + ' 張');
+
+  files.slice(0, room).forEach(function(file){
+    shrink(file, function(data){
+      if (!current) return;
+      current.photos.push(data);
+      drawThumbs();
+    });
+  });
+});
+
+function shrink(file, done){
   const img = new Image();
   img.onload = function(){
     const max = 1400;
@@ -293,14 +318,27 @@ $('pic').addEventListener('change', function(e){
     c.width = Math.round(img.width * s);
     c.height = Math.round(img.height * s);
     c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-    const data = c.toDataURL('image/jpeg', 0.72);
-    if (current) current.photo = data;
-    $('thumb').src = data;
-    $('thumb').hidden = false;
     URL.revokeObjectURL(img.src);
+    done(c.toDataURL('image/jpeg', 0.72));
   };
+  img.onerror = function(){ URL.revokeObjectURL(img.src); toast('有一張照片讀不出來'); };
   img.src = URL.createObjectURL(file);
-});
+}
+
+function drawThumbs(){
+  const box = $('thumbs');
+  const list = (current && current.photos) || [];
+  box.innerHTML = list.map(function(d, i){
+    return '<figure><img src="' + d + '" alt=""><button type="button" data-i="' + i + '">×</button></figure>';
+  }).join('');
+  box.querySelectorAll('button').forEach(function(b){
+    b.addEventListener('click', function(){
+      current.photos.splice(Number(b.dataset.i), 1);
+      drawThumbs();
+    });
+  });
+  $('picLabel').textContent = list.length ? '再加照片（已選 ' + list.length + ' 張）' : '加照片';
+}
 
 // ── 送出 ──────────────────────────────────
 $('send').addEventListener('click', function(){
@@ -308,7 +346,7 @@ $('send').addEventListener('click', function(){
   const rec = {
     action:'checkin', token:token, cid:uuid(), ts:new Date().toISOString(),
     type:current.type, lat:current.lat, lng:current.lng, acc:current.acc,
-    battery:current.battery, note:$('note').value.trim(), photo:current.photo
+    battery:current.battery, note:$('note').value.trim(), photos:current.photos
   };
   enqueue(rec);
   closeSheet();
@@ -324,7 +362,7 @@ function saveQueue(q){
   try { localStorage.setItem(QKEY, JSON.stringify(q)); return true; }
   catch(e){
     // 空間不足：捨棄照片保住紀錄，位置和時間比照片重要
-    q.forEach(function(r){ r.photo = null; });
+    q.forEach(function(r){ r.photos = []; r.photo = null; });
     try { localStorage.setItem(QKEY, JSON.stringify(q)); toast('空間不足，這幾筆的照片沒留住'); return true; }
     catch(e2){ return false; }
   }

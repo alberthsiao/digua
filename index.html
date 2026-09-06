@@ -101,6 +101,9 @@ body{
   width:100%;border-radius:8px;margin-top:11px;display:block;
   background:var(--dust);cursor:zoom-in;aspect-ratio:4/3;object-fit:cover
 }
+.strip{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:11px}
+.strip img{margin-top:0;aspect-ratio:1;border-radius:6px}
+.strip img:only-child{grid-column:1/-1;aspect-ratio:4/3}
 
 .board{margin-bottom:24px}
 .compose{background:#fff;border-radius:12px;padding:15px 16px 16px;margin-bottom:22px}
@@ -202,7 +205,7 @@ body{
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R3.1';
+const BUILD = 'R3.2';
 
 const COLORS = { '出發':'#0B6E4F', '打卡':'#C99A1E', '休息':'#6E8090', '收工':'#1F2622' };
 const $ = function(id){ return document.getElementById(id); };
@@ -445,9 +448,22 @@ function drawFeed(){
   });
 }
 
+function photoStrip(list, dayNo, p){
+  if (!list.length) return '';
+  const cap = '第 ' + dayNo + ' 天　' + hhmm(p.t) + '　' + esc(short(p.addr));
+  if (list.length === 1) {
+    return '<img loading="lazy" src="' + thumbOf(list[0].pid, list[0].url) +
+           '" data-full="' + list[0].url + '" data-cap="' + cap + '" alt="">';
+  }
+  return '<div class="strip">' + list.map(function(ph){
+    return '<img loading="lazy" src="' + thumbOf(ph.pid, ph.url) + '" data-full="' + ph.url +
+           '" data-cap="' + cap + '" alt="">';
+  }).join('') + '</div>';
+}
+
 function photoCount(){
   return DAYS.reduce(function(n, g){
-    return n + g.pts.filter(function(p){ return p.photo; }).length;
+    return n + g.pts.reduce(function(k, p){ return k + photosOf(p).length; }, 0);
   }, 0);
 }
 
@@ -533,13 +549,16 @@ function drawWall(){
   }
   let html = '<p class="wallhead">' + photoCount() + ' 張，由新到舊。點一下放大。</p><div class="wall">';
   DAYS.slice().reverse().forEach(function(g){
-    const shots = g.pts.filter(function(p){ return p.photo; });
+    const shots = [];
+    g.pts.slice().reverse().forEach(function(p){
+      photosOf(p).forEach(function(ph){ shots.push({ p:p, ph:ph }); });
+    });
     if (!shots.length) return;
     html += '<p class="day">第 ' + g.no + ' 天　' + longDate(g.date) + '</p>';
-    shots.reverse().forEach(function(p){
-      html += '<img loading="lazy" src="' + thumb(p) + '" data-full="' + p.photo +
-              '" data-cap="第 ' + g.no + ' 天　' + hhmm(p.t) + '　' + esc(short(p.addr)) +
-              (p.note ? '　' + esc(p.note) : '') + '" alt="">';
+    shots.forEach(function(x){
+      html += '<img loading="lazy" src="' + thumbOf(x.ph.pid, x.ph.url) + '" data-full="' + x.ph.url +
+              '" data-cap="第 ' + g.no + ' 天　' + hhmm(x.p.t) + '　' + esc(short(x.p.addr)) +
+              (x.p.note ? '　' + esc(x.p.note) : '') + '" alt="">';
     });
   });
   $('list').innerHTML = html + '</div>';
@@ -549,8 +568,14 @@ function drawWall(){
 }
 
 /** 牆上用小圖，點開才載大圖 */
-function thumb(p){
-  return p.pid ? 'https://drive.google.com/thumbnail?id=' + p.pid + '&sz=w400' : p.photo;
+/** 牆上與日記用小圖，點開才載大圖 */
+function thumbOf(pid, url){
+  return pid ? 'https://drive.google.com/thumbnail?id=' + pid + '&sz=w400' : url;
+}
+function photosOf(p){
+  const urls = p.photos || (p.photo ? [p.photo] : []);
+  const pids = p.pids || (p.pid ? [p.pid] : []);
+  return urls.map(function(u, i){ return { url:u, pid:pids[i] || '' }; });
 }
 
 function dayBlock(g){
@@ -566,7 +591,7 @@ function dayBlock(g){
        (g.restMin ? '　·　休息 ' + hm(g.restMin) : '') +
        (g.resting ? '　·　<b style="color:#6E8090">休息中</b>' : '') + '</p>';
   h += '<p class="stat" style="margin-top:-8px">打卡 ' + g.pts.length + ' 次　·　照片 ' +
-       g.pts.filter(function(p){ return p.photo; }).length + ' 張</p>';
+       g.pts.reduce(function(k, p){ return k + photosOf(p).length; }, 0) + ' 張</p>';
 
   if (g.diary) h += '<p class="diary">' + esc(g.diary) + '</p>';
 
@@ -578,9 +603,7 @@ function dayBlock(g){
          '<div class="addr">' + (esc(short(p.addr)) || '—') + '</div>' +
          (p.wx ? '<div class="wx">' + esc(p.wx) + '</div>' : '') +
          (showNote ? '<div class="note">' + esc(p.note) + '</div>' : '') +
-         (p.photo ? '<img loading="lazy" src="' + p.photo + '" data-full="' + p.photo +
-                    '" data-cap="第 ' + g.no + ' 天　' + hhmm(p.t) + '　' + esc(short(p.addr)) +
-                    '" alt="' + esc(short(p.addr)) + '">' : '') +
+         photoStrip(photosOf(p), g.no, p) +
          '</div></div>';
   });
   return h + '</section>';
@@ -611,7 +634,9 @@ function short(a){ return String(a == null ? '' : a).replace(/^台灣省?/, '').
 function popup(p){
   return '<b>' + esc(p.type) + '</b>　' + hhmm(p.t) + '<br>' + esc(short(p.addr)) +
          (p.note ? '<br>' + esc(p.note) : '') +
-         (p.photo ? '<br><img src="' + p.photo + '" style="width:100%;margin-top:6px;border-radius:5px">' : '');
+         photosOf(p).map(function(ph){
+           return '<br><img src="' + thumbOf(ph.pid, ph.url) + '" style="width:100%;margin-top:6px;border-radius:5px">';
+         }).join('');
 }
 function hhmm(iso){
   return new Date(iso).toLocaleTimeString('zh-TW', { hour:'2-digit', minute:'2-digit', hour12:false });
