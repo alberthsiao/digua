@@ -109,8 +109,15 @@ body{
   width:100%;border-radius:8px;margin-top:11px;display:block;
   background:var(--dust);cursor:zoom-in;aspect-ratio:4/3;object-fit:cover
 }
+.ph{position:relative;display:block}
+.ph b{
+  position:absolute;right:7px;bottom:7px;background:rgba(31,38,34,.82);color:var(--paper);
+  font-size:12px;font-weight:800;border-radius:999px;padding:2px 8px;pointer-events:none
+}
+.ph b::before{content:"💬 "}
 .strip{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:11px}
-.strip img{margin-top:0;aspect-ratio:1;border-radius:6px}
+.strip img,.strip .ph img{margin-top:0;aspect-ratio:1;border-radius:6px}
+.strip .ph{margin-top:0}
 .strip img:only-child{grid-column:1/-1;aspect-ratio:4/3}
 
 .board{margin-bottom:24px}
@@ -139,6 +146,7 @@ body{
 }
 
 .wall{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin:0 -18px 24px}
+.wall .ph{display:block}
 .wall img{
   width:100%;aspect-ratio:1;object-fit:cover;display:block;
   background:var(--dust);cursor:zoom-in
@@ -186,16 +194,27 @@ body{
 
 .lb{
   position:fixed;inset:0;background:rgba(31,38,34,.94);z-index:900;
-  display:none;align-items:center;justify-content:center;padding:16px;cursor:zoom-out
+  display:none;overflow-y:auto;-webkit-overflow-scrolling:touch
 }
-.lb.on{display:flex}
-.lb img{max-width:100%;max-height:88vh;border-radius:6px}
-.lb .cap{
-  position:absolute;left:0;right:0;bottom:0;
-  padding:16px 20px calc(env(safe-area-inset-bottom) + 18px);
-  color:var(--paper);font-size:14px;line-height:1.6;
-  background:linear-gradient(transparent,rgba(31,38,34,.85))
+.lb.on{display:block}
+.lbbox{max-width:560px;margin:0 auto;padding:52px 16px calc(env(safe-area-inset-bottom) + 32px)}
+.lb img{width:100%;max-height:70vh;object-fit:contain;border-radius:6px;display:block}
+.lb .cap{color:var(--paper);font-size:14px;line-height:1.6;padding:12px 2px 0;opacity:.85}
+.lbx{
+  position:fixed;top:12px;right:14px;z-index:20;width:38px;height:38px;border:0;border-radius:50%;
+  background:rgba(247,245,239,.16);color:var(--paper);font-size:24px;line-height:1;
+  cursor:pointer;font-family:inherit
 }
+.lbmsgs{margin-top:20px;border-top:1px solid rgba(247,245,239,.22);padding-top:18px}
+.lbmsgs .msg .who{color:var(--paper)}
+.lbmsgs .msg .who span{color:rgba(247,245,239,.6)}
+.lbcompose{background:rgba(247,245,239,.08)}
+.lbcompose input,.lbcompose textarea{
+  background:rgba(247,245,239,.1);border-color:rgba(247,245,239,.28);color:var(--paper)
+}
+.lbcompose input::placeholder,.lbcompose textarea::placeholder{color:rgba(247,245,239,.5)}
+.lbcompose .hint{color:rgba(247,245,239,.6)}
+.lbcompose textarea{min-height:64px}
 </style>
 </head>
 <body>
@@ -207,6 +226,7 @@ body{
       <button type="button" data-face="photo"><img src="digua.png" alt="手繪頭像"></button>
       <button type="button" data-face="potato"><img src="marker-potato.png" alt="番薯"></button>
       <button type="button" data-face="typhoon"><img src="marker-typhoon.png" alt="颱風"></button>
+      <button type="button" data-face="runner"><img src="marker-runner.png" alt="一個人在跑"></button>
     </div>
   </div>
 </div>
@@ -227,12 +247,27 @@ body{
   </div>
 </div>
 
-<div class="lb" id="lb"><img id="lbimg" alt=""><div class="cap" id="lbcap"></div></div>
+<div class="lb" id="lb">
+  <button class="lbx" id="lbClose" type="button" aria-label="關閉">×</button>
+  <div class="lbbox" id="lbbox">
+    <img id="lbimg" alt="">
+    <div class="cap" id="lbcap"></div>
+    <div class="lbmsgs">
+      <div id="lbList"></div>
+      <div class="compose lbcompose">
+        <input id="pName" maxlength="20" placeholder="你的名字" autocomplete="name">
+        <textarea id="pText" maxlength="300" placeholder="對這張照片說點什麼"></textarea>
+        <button id="pGo">留言</button>
+        <p class="hint" id="pHint"></p>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R3.7';
+const BUILD = 'R3.9';
 
 const COLORS = { '出發':'#0B6E4F', '打卡':'#C99A1E', '休息':'#6E8090', '收工':'#1F2622' };
 const $ = function(id){ return document.getElementById(id); };
@@ -250,7 +285,8 @@ let sel = null;       // 選中的第幾天；null = 全程
 let LEGS = [];        // 分好的路段
 let GROUP = localStorage.getItem('digua_group') === 'week' ? 'week' : 'city';
 
-const FACES = { photo:'digua.png', potato:'marker-potato.png', typhoon:'marker-typhoon.png' };
+const FACES = { photo:'digua.png', potato:'marker-potato.png',
+                typhoon:'marker-typhoon.png', runner:'marker-runner.png' };
 let FACE = FACES[localStorage.getItem('digua_face')] ? localStorage.getItem('digua_face') : 'photo';
 
 document.querySelectorAll('.facepick button').forEach(function(b){
@@ -272,7 +308,7 @@ function typing(){
   return !!(a && (a.id === 'mText' || a.id === 'mName'));
 }
 
-function load(){
+function load(after){
   fetch(API_URL + '?api=feed&_=' + Date.now())
     .then(function(r){ return r.json(); })
     .then(function(res){
@@ -281,9 +317,14 @@ function load(){
       DAYS = groupByDay(DATA);
       if (!booted) { sel = fromHash(); refit = true; booted = true; }
       if (sel !== null && typeof sel !== 'string' && !dayOf(sel)) sel = null;
+      if ($('lb').classList.contains('on')) {   // 燈箱開著就別動底下的畫面
+        if (after) after();
+        return;
+      }
       if (typing()) { drawBoard(); return; }   // 打字中只補留言，其餘不動
       renderAll();
       refit = false;
+      if (after) after();
     })
     .catch(function(){
       if (!booted) $('place').textContent = '連不上伺服器，稍後會自動再試';
@@ -449,7 +490,7 @@ function renderAll(){ LEGS = buildLegs(); drawChips(); drawMap(); drawHead(); dr
 
 function drawChips(){
   const shots = photoCount();
-  const msgs = (DATA.msgs || []).length;
+  const msgs = msgsFor('').length;
   let html = '<button class="chip" data-d="board" aria-pressed="' + (sel === 'board') + '">留言<em>' +
              msgs + ' 則</em></button>' +
              '<button class="chip" data-d="wall" aria-pressed="' + (sel === 'wall') + '">照片<em>' +
@@ -634,22 +675,23 @@ function drawFeed(){
     return;
   }
   $('list').innerHTML = shown.map(dayBlock).join('');
-  $('list').querySelectorAll('img[data-full]').forEach(function(img){
-    img.addEventListener('click', function(){ openLb(img.dataset.full, img.dataset.cap); });
-  });
+  bindPhotos();
 }
 
 function photoStrip(list, dayNo, p){
   if (!list.length) return '';
   const cap = '第 ' + dayNo + ' 天　' + hhmm(p.t) + '　' + esc(short(p.addr));
   if (list.length === 1) {
-    return '<img loading="lazy" src="' + thumbOf(list[0].pid, list[0].url) +
-           '" data-full="' + list[0].url + '" data-cap="' + cap + '" alt="">';
+    return imgTag(list[0], cap);
   }
-  return '<div class="strip">' + list.map(function(ph){
-    return '<img loading="lazy" src="' + thumbOf(ph.pid, ph.url) + '" data-full="' + ph.url +
-           '" data-cap="' + cap + '" alt="">';
-  }).join('') + '</div>';
+  return '<div class="strip">' + list.map(function(ph){ return imgTag(ph, cap); }).join('') + '</div>';
+}
+
+function imgTag(ph, cap){
+  const n = ph.pid ? msgsFor('photo:' + ph.pid).length : 0;
+  const img = '<img loading="lazy" src="' + thumbOf(ph.pid, ph.url) + '" data-full="' + ph.url +
+              '" data-pid="' + esc(ph.pid) + '" data-cap="' + cap + '" alt="">';
+  return n ? '<span class="ph">' + img + '<b>' + n + '</b></span>' : img;
 }
 
 function photoCount(){
@@ -658,8 +700,13 @@ function photoCount(){
   }, 0);
 }
 
+/** target 為空的是留言板，'photo:<id>' 的掛在照片下 */
+function msgsFor(target){
+  return (DATA.msgs || []).filter(function(m){ return (m.target || '') === target; });
+}
+
 function drawBoard(){
-  const list = DATA.msgs || [];
+  const list = msgsFor('');
 
   // 輸入框只建一次。每 60 秒的自動更新只換下面的留言，
   // 不碰上面的表單，打到一半才不會被洗掉。
@@ -747,15 +794,12 @@ function drawWall(){
     if (!shots.length) return;
     html += '<p class="day">第 ' + g.no + ' 天　' + longDate(g.date) + '</p>';
     shots.forEach(function(x){
-      html += '<img loading="lazy" src="' + thumbOf(x.ph.pid, x.ph.url) + '" data-full="' + x.ph.url +
-              '" data-cap="第 ' + g.no + ' 天　' + hhmm(x.p.t) + '　' + esc(short(x.p.addr)) +
-              (x.p.note ? '　' + esc(x.p.note) : '') + '" alt="">';
+      html += imgTag(x.ph, '第 ' + g.no + ' 天　' + hhmm(x.p.t) + '　' + esc(short(x.p.addr)) +
+              (x.p.note ? '　' + esc(x.p.note) : ''));
     });
   });
   $('list').innerHTML = html + '</div>';
-  $('list').querySelectorAll('img[data-full]').forEach(function(img){
-    img.addEventListener('click', function(){ openLb(img.dataset.full, img.dataset.cap); });
-  });
+  bindPhotos();
 }
 
 /** 牆上用小圖，點開才載大圖 */
@@ -802,14 +846,76 @@ function dayBlock(g){
   return h + '</section>';
 }
 
-function openLb(src, cap){
+let LB_PID = '';
+
+function openLb(src, cap, pid){
+  LB_PID = pid || '';
   $('lbimg').src = src;
   $('lbcap').textContent = cap || '';
+  $('pName').value = localStorage.getItem('digua_name') || '';
+  $('pText').value = '';
+  $('pHint').textContent = '';
   $('lb').classList.add('on');
+  document.body.style.overflow = 'hidden';
+  drawLbMsgs();
 }
-function closeLb(){ $('lb').classList.remove('on'); $('lbimg').src = ''; }
-$('lb').addEventListener('click', closeLb);
+
+function closeLb(){
+  $('lb').classList.remove('on');
+  $('lbimg').src = '';
+  LB_PID = '';
+  document.body.style.overflow = '';
+}
+
+function drawLbMsgs(){
+  if (!LB_PID) { $('lbList').innerHTML = ''; return; }
+  const list = msgsFor('photo:' + LB_PID);
+  $('lbList').innerHTML = list.length
+    ? list.map(function(m){
+        return '<div class="msg"><div class="who">' + esc(m.name) +
+               '<span>' + fullTime(m.t) + '</span></div>' +
+               '<div class="txt">' + esc(m.text) + '</div></div>';
+      }).join('')
+    : '<p class="cap" style="padding:0 0 14px">還沒有人對這張說話。</p>';
+}
+
+$('lbClose').addEventListener('click', closeLb);
+$('lb').addEventListener('click', function(e){ if (e.target === $('lb')) closeLb(); });
 document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeLb(); });
+
+$('pGo').addEventListener('click', function(){
+  const name = $('pName').value.trim();
+  const text = $('pText').value.trim();
+  if (!name || !text) {
+    $('pHint').textContent = name ? '還沒寫內容。' : '留個名字吧。';
+    return;
+  }
+  if (!LB_PID) { $('pHint').textContent = '這張照片還沒有編號，暫時不能留言。'; return; }
+  localStorage.setItem('digua_name', name);
+  $('pGo').disabled = true; $('pGo').textContent = '送出中…';
+
+  fetch(API_URL, {
+    method:'POST', redirect:'follow',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify({ action:'message', name:name, text:text, target:'photo:' + LB_PID })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(res){
+    $('pGo').disabled = false; $('pGo').textContent = '留言';
+    if (res && res.ok) {
+      $('pText').value = '';
+      $('pHint').textContent = '留言送出了。';
+      refit = false;
+      load(function(){ drawLbMsgs(); });
+    } else {
+      $('pHint').textContent = (res && res.error) || '送出失敗，再試一次。';
+    }
+  })
+  .catch(function(){
+    $('pGo').disabled = false; $('pGo').textContent = '留言';
+    $('pHint').textContent = '連不上伺服器，等一下再試。';
+  });
+});
 
 function dayOf(no){ return DAYS.filter(function(g){ return g.no === no; })[0]; }
 function startDate(){ return new Date(((DATA && DATA.startDate) || '2026-09-05') + 'T00:00:00+08:00'); }
