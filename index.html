@@ -121,6 +121,32 @@ body{
 .strip .ph{margin-top:0}
 .strip img:only-child{grid-column:1/-1;aspect-ratio:4/3}
 
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:26px}
+.st{background:#fff;border-radius:12px;padding:15px 16px 16px;border-left:5px solid var(--sign)}
+.st:nth-child(2){border-left-color:var(--paint)}
+.st:nth-child(3){border-left-color:#2C5AA0}
+.st:nth-child(4){border-left-color:#A8770E}
+.stn{font-size:34px;font-weight:800;line-height:1;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.stn i{font-style:normal;font-size:14px;font-weight:700;margin-left:3px}
+.stl{font-size:12.5px;color:var(--mute);margin-top:6px;line-height:1.5}
+
+.statlead{font-size:12px;font-weight:800;letter-spacing:.1em;color:var(--sign);margin:0 0 12px}
+.cities{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 26px}
+.cities span{
+  background:#fff;border:1.5px solid var(--dust);border-radius:999px;
+  padding:6px 13px;font-size:14px;font-weight:700
+}
+
+.rec{
+  display:block;width:100%;text-align:left;background:#fff;border:0;border-radius:12px;
+  padding:14px 16px;margin-bottom:9px;cursor:pointer;font-family:inherit;
+  border-left:4px solid var(--dust)
+}
+.rec:hover{border-left-color:var(--ink)}
+.rl{display:block;font-size:12.5px;font-weight:800;color:var(--mute);letter-spacing:.05em}
+.rv{display:block;font-size:25px;font-weight:800;margin:3px 0 2px;letter-spacing:-.01em}
+.rd{display:block;font-size:13px;color:var(--mute)}
+
 .board{margin-bottom:24px}
 .compose{background:#fff;border-radius:12px;padding:15px 16px 16px;margin-bottom:22px}
 .compose input,.compose textarea{
@@ -268,7 +294,7 @@ body{
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R4.4';
+const BUILD = 'R4.5';
 
 const COLORS = { '出發':'#0B6E4F', '打卡':'#C99A1E', '收工':'#1F2622',
                  '休息日':'#A8770E', '休息':'#6E8090' };
@@ -338,6 +364,7 @@ function fromHash(){
   if (m) return Number(m[1]);
   if (location.hash === '#photos') return 'wall';
   if (location.hash === '#board') return 'board';
+  if (location.hash === '#stats') return 'stats';
   if (location.hash.indexOf('#leg:') === 0) return location.hash.slice(1);
   if (location.hash === '#all') return null;
   return DAYS.length ? DAYS[DAYS.length - 1].no : null;   // 預設看最新的一天
@@ -510,7 +537,9 @@ function renderAll(){ LEGS = buildLegs(); drawChips(); drawMap(); drawHead(); dr
 function drawChips(){
   const shots = photoCount();
   const msgs = msgsFor('').length;
-  let html = '<button class="chip" data-d="board" aria-pressed="' + (sel === 'board') + '">留言<em>' +
+  let html = '<button class="chip" data-d="stats" aria-pressed="' + (sel === 'stats') + '">數字<em>' +
+             round1(DATA.totalKm) + ' km</em></button>' +
+             '<button class="chip" data-d="board" aria-pressed="' + (sel === 'board') + '">留言<em>' +
              msgs + ' 則</em></button>' +
              '<button class="chip" data-d="wall" aria-pressed="' + (sel === 'wall') + '">照片<em>' +
              shots + ' 張</em></button>' +
@@ -539,10 +568,11 @@ function drawChips(){
     b.addEventListener('click', function(){
       const d = b.dataset.d;
       sel = d === 'all' ? null
-          : (d === 'wall' || d === 'board' || d.indexOf('leg:') === 0) ? d
+          : (d === 'wall' || d === 'board' || d === 'stats' || d.indexOf('leg:') === 0) ? d
           : Number(d);
       history.replaceState(null, '',
         sel === null ? '#all' : sel === 'wall' ? '#photos' : sel === 'board' ? '#board'
+        : sel === 'stats' ? '#stats'
         : typeof sel === 'string' ? '#' + sel : '#d' + sel);
       refit = true;
       renderAll();
@@ -579,7 +609,7 @@ function legOfSel(){
 
 /** 目前要顯示哪些天 */
 function shownDays(){
-  if (sel === null || sel === 'wall' || sel === 'board') return DAYS;
+  if (sel === null || sel === 'wall' || sel === 'board' || sel === 'stats') return DAYS;
   if (typeof sel === 'string' && sel.indexOf('leg:') === 0) {
     const L = legOfSel();
     return L ? L.days : DAYS;
@@ -596,7 +626,7 @@ function drawMap(){
   const line = pts.map(function(p){ return [p.lat, p.lng]; });
 
   // 只看某一天時，其餘路線淡淡留著當底
-  if (sel !== null && sel !== 'wall' && sel !== 'board' && all.length > 1) {
+  if (sel !== null && typeof sel !== 'string' && all.length > 1) {
     L.polyline(all, { color:'#9AA39C', weight:3, opacity:.5 }).addTo(layer);
   }
   // 逐日上色，白色外框墊底維持在圖磚上的對比
@@ -691,6 +721,7 @@ function drawHead(){
 function drawFeed(){
   if (sel === 'wall') { drawWall(); return; }
   if (sel === 'board') { drawBoard(); return; }
+  if (sel === 'stats') { drawStats(); return; }
   const shown = shownDays().slice().reverse();
   if (!shown.length) {
     $('list').innerHTML = '<p class="empty">陳地瓜 ' + startLabel() +
@@ -748,6 +779,103 @@ function photoCount(){
 /** target 為空的是留言板，'photo:<id>' 的掛在照片下 */
 function msgsFor(target){
   return (DATA.msgs || []).filter(function(m){ return (m.target || '') === target; });
+}
+
+/** 走到一半也看得到的統計。走完之後這一頁就是回顧的骨架。 */
+function drawStats(){
+  const walk = DAYS.filter(function(g){ return !g.restDay; });
+  const rest = DAYS.filter(function(g){ return g.restDay; });
+  const shots = photoCount();
+  const cities = [];
+  DAYS.forEach(function(g){
+    for (let i = g.pts.length - 1; i >= 0; i--) {
+      const c = cityOf(g.pts[i].addr);
+      if (c) {
+        if (!cities.some(function(x){ return normCity(x) === normCity(c); })) cities.push(c);
+        break;
+      }
+    }
+  });
+
+  let html = '<div class="stats">' +
+    bigStat(DAYS.length + '<i>天</i>', '出發至今　走 ' + walk.length + ' 天 · 休 ' + rest.length + ' 天') +
+    bigStat(round1(DATA.totalKm) + '<i>km</i>', '累計距離') +
+    bigStat(cities.length + '<i>個</i>', '經過的縣市') +
+    bigStat(shots + '<i>張</i>', '沿路的照片') +
+    '</div>';
+
+  if (cities.length) {
+    html += '<p class="statlead">走過的縣市</p><p class="cities">' +
+            cities.map(function(c){ return '<span>' + esc(c) + '</span>'; }).join('') + '</p>';
+  }
+
+  // 之最
+  const recs = [];
+  const far = best(walk, function(g){ return g.km; });
+  if (far && far.km > 0) recs.push(['走最遠的一天', round1(far.km) + ' 公里', far]);
+  const long = best(walk, function(g){ return g.walkMin; });
+  if (long && long.walkMin > 0) recs.push(['在路上最久的一天', hm(long.walkMin), long]);
+  const hot = best(DAYS, function(g){ return maxTemp(g); });
+  if (hot && maxTemp(hot) > -99) recs.push(['最熱的一天', maxTemp(hot) + '°C', hot]);
+  const cold = best(DAYS, function(g){ return -minTemp(g); });
+  if (cold && minTemp(cold) < 99) recs.push(['最涼的一天', minTemp(cold) + '°C', cold]);
+  const many = best(DAYS, function(g){
+    return g.pts.reduce(function(k, p){ return k + photosOf(p).length; }, 0);
+  });
+  if (many) {
+    const n = many.pts.reduce(function(k, p){ return k + photosOf(p).length; }, 0);
+    if (n > 0) recs.push(['拍最多照片的一天', n + ' 張', many]);
+  }
+
+  if (recs.length) {
+    html += '<p class="statlead">之最</p>';
+    html += recs.map(function(r){
+      const g = r[2];
+      return '<button class="rec" data-go="' + g.no + '">' +
+             '<span class="rl">' + r[0] + '</span>' +
+             '<span class="rv">' + r[1] + '</span>' +
+             '<span class="rd">第 ' + g.no + ' 天　' + longDate(g.date) + '　' +
+             esc(short(g.to || g.from)) + '</span></button>';
+    }).join('');
+  }
+
+  $('list').innerHTML = html;
+  $('list').querySelectorAll('.rec').forEach(function(b){
+    b.addEventListener('click', function(){
+      sel = Number(b.dataset.go);
+      history.replaceState(null, '', '#d' + sel);
+      refit = true; renderAll(); refit = false;
+      $('scroll').scrollTop = 0;
+    });
+  });
+}
+
+function bigStat(big, small){
+  return '<div class="st"><div class="stn">' + big + '</div><div class="stl">' + small + '</div></div>';
+}
+
+function best(list, score){
+  let top = null, v = -Infinity;
+  list.forEach(function(g){ const n = score(g); if (n > v) { v = n; top = g; } });
+  return top;
+}
+
+function maxTemp(g){
+  let m = -99;
+  g.pts.forEach(function(p){
+    const t = parseFloat(p.wx);
+    if (isFinite(t) && t > m) m = t;
+  });
+  return m;
+}
+
+function minTemp(g){
+  let m = 99;
+  g.pts.forEach(function(p){
+    const t = parseFloat(p.wx);
+    if (isFinite(t) && t < m) m = t;
+  });
+  return m;
 }
 
 function drawBoard(){
