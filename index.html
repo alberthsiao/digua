@@ -81,6 +81,7 @@ body{
 .badge.walking{background:var(--sign);color:#fff}
 .badge.resting{background:#6E8090;color:#fff}
 .badge.done{background:var(--ink);color:var(--paper)}
+.badge.stayday{background:#A8770E;color:#fff}
 .badge.walking::before,.badge.resting::before{animation:blink 1.6s ease-in-out infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
 .now .place{font-size:26px;font-weight:800;line-height:1.28;margin:5px 0 4px}
@@ -267,9 +268,10 @@ body{
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R4.1';
+const BUILD = 'R4.3';
 
-const COLORS = { '出發':'#0B6E4F', '打卡':'#C99A1E', '休息':'#6E8090', '收工':'#1F2622' };
+const COLORS = { '出發':'#0B6E4F', '打卡':'#C99A1E', '收工':'#1F2622',
+                 '休息日':'#A8770E', '休息':'#6E8090' };
 const $ = function(id){ return document.getElementById(id); };
 
 const map = L.map('map', { zoomControl:false }).setView([23.7, 121.0], 7);
@@ -362,12 +364,17 @@ function groupByDay(d){
     const g = buckets[k];
     g.no = Math.max(1, Math.round((g.date - start) / 86400000) + 1);
     g.km = g.pts.reduce(function(s, p){ return s + (p.km || 0); }, 0);
-    if (d.manual && d.manual[g.key] != null) { g.km = d.manual[g.key]; g.manual = true; }
+    g.restDay = (d.restDays || []).indexOf(g.key) >= 0 ||
+                g.pts.some(function(p){ return p.type === '休息日'; });
+    if (g.restDay) g.km = 0;
+    else if (d.manual && d.manual[g.key] != null) { g.km = d.manual[g.key]; g.manual = true; }
     g.from = g.pts[0].addr || '';
     g.to = g.pts[g.pts.length - 1].addr || '';
     Object.assign(g, hoursOf(g.pts));
     // 收工那筆的留言就是當天的日記
-    const wrap = g.pts.filter(function(p){ return p.type === '收工' && p.note; }).pop();
+    const wrap = g.pts.filter(function(p){
+      return (p.type === '收工' || p.type === '休息日') && p.note;
+    }).pop();
     g.diary = wrap ? wrap.note : '';
     g.diaryFrom = wrap || null;
     return g;
@@ -453,18 +460,24 @@ function buildLegs(){
   return GROUP === 'week' ? legsByWeek() : legsByCity();
 }
 
+/** 臺／台 混用時視為同一個縣市 */
+function normCity(c){ return String(c || '').replace(/^臺/, '台'); }
+
 function legsByCity(){
   const legs = [];
   DAYS.forEach(function(g){
-    // 一天可能跨縣市，用當天出現最多次的那個當代表
-    const tally = {};
-    g.pts.forEach(function(p){
-      const c = cityOf(p.addr);
-      if (c) tally[c] = (tally[c] || 0) + 1;
-    });
-    const city = Object.keys(tally).sort(function(a,b){ return tally[b] - tally[a]; })[0] || '路上';
+    // 用當天最後一筆的位置代表這一天——他今天走到哪裡就算哪裡。
+    // 徒步跨縣市本來就發生在一天之中，用「當天出現最多次」的縣市會把
+    // 剛跨過去的那一縣整個吃掉（走了一天臺南、傍晚進嘉義，嘉義就不見了）。
+    let city = '';
+    for (let i = g.pts.length - 1; i >= 0; i--) {
+      city = cityOf(g.pts[i].addr);
+      if (city) break;
+    }
+    if (!city) city = '路上';
+
     const prev = legs[legs.length - 1];
-    if (prev && prev.city === city) { prev.days.push(g); prev.km += g.km; }
+    if (prev && normCity(prev.city) === normCity(city)) { prev.days.push(g); prev.km += g.km; }
     else legs.push({ city: city, days: [g], km: g.km });
   });
   legs.forEach(function(L){
@@ -634,10 +647,14 @@ function drawHead(){
       '<div class="km">0<i>km</i></div><div class="sub">' + startLabel() + '出發</div>';
   } else {
     document.querySelector('.milestone').innerHTML =
-      '<div class="km">' + (g ? round1(g.km) : L ? round1(L.km) : DATA.totalKm) + '<i>km</i></div>' +
-      '<div class="sub">' + (g ? '第 ' + g.no + ' 天'
+      (g && g.restDay
+        ? '<div class="km" style="font-size:22px">休息日</div>'
+        : '<div class="km">' + (g ? round1(g.km) : L ? round1(L.km) : DATA.totalKm) + '<i>km</i></div>') +
+      '<div class="sub">' + (g ? '第 ' + g.no + ' 天' + (g.restDay ? '' : '')
         : L ? L.city + '　' + L.days.length + ' 天'
-        : '全程 ' + DATA.day + ' 天') + '　路線距離</div>';
+        : '走 ' + DAYS.filter(function(x){ return !x.restDay; }).length + ' 天 · 休 ' +
+          DAYS.filter(function(x){ return x.restDay; }).length + ' 天') +
+      (g && g.restDay ? '</div>' : '　路線距離</div>');
   }
 
   if (!pts.length) {
@@ -657,16 +674,17 @@ function drawHead(){
   const b = $('badge');
   if (live) {
     b.hidden = false;
-    b.className = 'badge ' + (g0.done ? 'done' : g0.resting ? 'resting' : 'walking');
-    b.textContent = g0.done ? '今天收工' : '在路上';
+    b.className = 'badge ' + (g0.restDay ? 'stayday' : g0.done ? 'done' : 'walking');
+    b.textContent = g0.restDay ? '今天休息' : g0.done ? '今天收工' : '在路上';
   } else {
     b.hidden = true;
   }
 
   $('when').innerHTML = esc(fullTime(last.t)) + '　' + ago(last.t) +
     (last.wx ? '　·　' + esc(last.wx) : '') +
-    (live ? '<br>' + (g0.done ? '今天在路上 ' + hm(g0.walkMin) + '，收工了'
-                              : '今天在路上 ' + hm(g0.walkMin)) : '');
+    (live ? '<br>' + (g0.restDay ? '今天不走，休息'
+                    : g0.done ? '今天在路上 ' + hm(g0.walkMin) + '，收工了'
+                    : '今天在路上 ' + hm(g0.walkMin)) : '');
   $('foot').textContent = '最後更新 ' + hhmm(DATA.updated) + '　·　' + BUILD;
 }
 
@@ -691,6 +709,18 @@ function bindPhotos(){
       openLb(img.dataset.full, img.dataset.cap, img.dataset.pid);
     });
   });
+}
+
+function entryHtml(p, g){
+  const showNote = p.note && p !== g.diaryFrom;
+  return '<div class="entry"><div class="t">' + hhmm(p.t) + '</div>' +
+         '<div class="body" style="border-color:' + (COLORS[p.type] || '#C9C3B2') + '">' +
+         '<div class="kind" style="color:' + (COLORS[p.type] || '#1F2622') + '">' + esc(p.type) + '</div>' +
+         '<div class="addr">' + (esc(short(p.addr)) || '—') + '</div>' +
+         (p.wx ? '<div class="wx">' + esc(p.wx) + '</div>' : '') +
+         (showNote ? '<div class="note">' + esc(p.note) + '</div>' : '') +
+         photoStrip(photosOf(p), g.no, p) +
+         '</div></div>';
 }
 
 function photoStrip(list, dayNo, p){
@@ -834,6 +864,15 @@ function dayBlock(g){
           '<span class="n">第 ' + g.no + ' 天</span>' +
           '<span class="date">' + longDate(g.date) + '</span></div>';
 
+  if (g.restDay) {
+    h += '<p class="route">' + esc(short(g.to || g.from) || '休息') + '</p>' +
+         '<p class="stat"><b style="color:#A8770E">休息日</b>　·　照片 ' +
+         g.pts.reduce(function(k, p){ return k + photosOf(p).length; }, 0) + ' 張</p>';
+    if (g.diary) h += '<p class="diary" style="border-left-color:#A8770E">' + esc(g.diary) + '</p>';
+    g.pts.forEach(function(p){ h += entryHtml(p, g); });
+    return h + '</section>';
+  }
+
   if (g.from && g.to && short(g.from) !== short(g.to)) {
     h += '<p class="route">' + esc(short(g.from)) + '<span>→</span>' + esc(short(g.to)) + '</p>';
   } else if (g.to) {
@@ -847,17 +886,7 @@ function dayBlock(g){
 
   if (g.diary) h += '<p class="diary">' + esc(g.diary) + '</p>';
 
-  g.pts.forEach(function(p){
-    const showNote = p.note && p !== g.diaryFrom;
-    h += '<div class="entry"><div class="t">' + hhmm(p.t) + '</div>' +
-         '<div class="body" style="border-color:' + (COLORS[p.type] || '#C9C3B2') + '">' +
-         '<div class="kind" style="color:' + (COLORS[p.type] || '#1F2622') + '">' + esc(p.type) + '</div>' +
-         '<div class="addr">' + (esc(short(p.addr)) || '—') + '</div>' +
-         (p.wx ? '<div class="wx">' + esc(p.wx) + '</div>' : '') +
-         (showNote ? '<div class="note">' + esc(p.note) + '</div>' : '') +
-         photoStrip(photosOf(p), g.no, p) +
-         '</div></div>';
-  });
+  g.pts.forEach(function(p){ h += entryHtml(p, g); });
   return h + '</section>';
 }
 

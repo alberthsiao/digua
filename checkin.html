@@ -12,7 +12,7 @@
 :root{
   --paper:#F7F5EF; --ink:#1F2622; --sign:#0B6E4F; --paint:#F4E04D;
   --brick:#B4472E; --dust:#C9C3B2; --mute:#6B6F68;
-  --BUILD:"R4.1";
+  --BUILD:"R4.3";
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%}
@@ -35,6 +35,9 @@ header{padding:14px 0 12px;flex:none}
 .timer.walking{border-left-color:var(--sign)}
 .timer.resting{border-left-color:#6E8090}
 .timer.done{border-left-color:var(--ink)}
+.timer.stayday{border-left-color:#A8770E}
+.timer.stayday .badge{background:#A8770E;color:#fff}
+.timer.stayday .clock{color:#A8770E}
 
 .badge{
   display:inline-flex;align-items:center;gap:7px;
@@ -70,7 +73,7 @@ header{padding:14px 0 12px;flex:none}
 .timer.resting .clock{color:#6E8090}
 .state{font-size:13px;font-weight:600;color:var(--mute);text-align:right;line-height:1.5}
 
-.grid{flex:1;display:grid;grid-template-rows:1fr 1fr 1fr;gap:10px;min-height:0}
+.grid{flex:1;display:grid;grid-template-rows:1.15fr 1.15fr 1.15fr .8fr;gap:9px;min-height:0}
 .act{
   border:0;border-radius:14px;font-family:inherit;font-size:34px;font-weight:800;
   letter-spacing:.06em;display:flex;flex-direction:column;justify-content:center;
@@ -82,6 +85,7 @@ header{padding:14px 0 12px;flex:none}
 .go{background:var(--sign);color:#fff}
 .mark{background:var(--paint);color:var(--ink)}
 .done{background:var(--ink);color:var(--paper)}
+.stay{background:#A8770E;color:#fff;font-size:26px}
 
 footer{padding:14px 2px 2px;font-size:13px;line-height:1.6;color:var(--mute);min-height:56px}
 footer b{color:var(--ink);font-weight:700}
@@ -180,6 +184,7 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
   <button class="act go"   data-type="出發">出發<small>開始計時，寄信給好友</small></button>
   <button class="act mark" data-type="打卡">打卡<small>記位置、拍照，最多 8 張</small></button>
   <button class="act done" data-type="收工">收工<small>今天走完了，留言就是日記</small></button>
+  <button class="act stay" data-type="休息日">今天休息<small>不走了，照樣可以拍照留紀錄</small></button>
 </div>
 
 <footer id="foot">尚未打卡。</footer>
@@ -218,7 +223,7 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
 
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R4.1';
+const BUILD = 'R4.3';
 const QKEY = 'digua_queue';
 const TKEY = 'digua_token';
 
@@ -236,7 +241,7 @@ let current = null;   // {type, lat, lng, acc, battery, photo}
 let watchId = null;
 
 // ── 打卡流程 ──────────────────────────────
-const TYPE_SET = { '出發':1, '打卡':1, '收工':1 };
+const TYPE_SET = { '出發':1, '打卡':1, '收工':1, '休息日':1 };
 
 document.querySelectorAll('.act').forEach(function(btn){
   btn.addEventListener('click', function(){ openPanel(btn.dataset.type); });
@@ -248,7 +253,8 @@ function openPanel(type){
   $('note').value = '';
   $('pic').value = '';
   const ph = { '收工':'今天走得怎麼樣？這段話會變成今天的日記',
-               '出發':'今天要走去哪？（可留空）' };
+               '出發':'今天要走去哪？（可留空）',
+               '休息日':'今天在哪裡休息？吃了什麼？這段話會變成今天的日記' };
   $('note').placeholder = ph[type] || '想說的話（可留空）';
   $('kmbox').hidden = type !== '收工';
   $('km').value = '';
@@ -586,6 +592,11 @@ function tick(){
 
   if (!t) {
     setTimer('尚未出發', '0:00:00', '按「出發」開始計時');
+    return;
+  }
+  if (t.rest) {
+    box.classList.add('stayday');
+    setTimer('今天休息', '—', '不計時，好好休息');
     return;
   }
   if (t.done) {
