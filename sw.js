@@ -1,7 +1,7 @@
-/* 環島打卡 Service Worker — BUILD R4.4
+/* 環島打卡 Service Worker — BUILD R5.0
    目的只有一個：沒訊號時打卡頁還打得開，打卡資料由頁面自己排隊補送。 */
-const CACHE = 'digua-R4.4';
-const SHELL = ['checkin.html', 'manifest.json', 'icon-192.png'];
+const CACHE = 'digua-R5.0';
+const SHELL = ['checkin.html', 'tw.js', 'manifest.json', 'icon-192.png'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function(){ return self.skipWaiting(); }));

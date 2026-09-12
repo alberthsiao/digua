@@ -115,7 +115,7 @@ body{
   position:absolute;right:7px;bottom:7px;background:rgba(31,38,34,.82);color:var(--paper);
   font-size:12px;font-weight:800;border-radius:999px;padding:2px 8px;pointer-events:none
 }
-.ph b::before{content:"💬 "}
+.ph b i{font-style:normal;margin-right:3px}
 .strip{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:11px}
 .strip img,.strip .ph img{margin-top:0;aspect-ratio:1;border-radius:6px}
 .strip .ph{margin-top:0}
@@ -162,6 +162,31 @@ body{
 .compose button[disabled]{opacity:.5}
 .compose .hint{font-size:13px;color:var(--mute);margin:10px 2px 0;line-height:1.6}
 .compose .err{color:var(--brick);font-weight:700}
+
+.like{
+  display:inline-flex;align-items:center;gap:5px;background:#fff;border:1.5px solid var(--dust);
+  border-radius:999px;padding:7px 14px;font-family:inherit;font-size:14px;font-weight:700;
+  color:var(--mute);cursor:pointer;line-height:1
+}
+.like .hs{font-size:15px;line-height:1}
+.like.on{background:var(--brick);border-color:var(--brick);color:#fff}
+.like.big{padding:9px 17px;font-size:15px}
+.like.big .hs{font-size:17px}
+.dayfoot{margin:2px 0 16px}
+
+.lbbar{display:flex;align-items:flex-end;justify-content:space-between;gap:14px}
+.lbbar .cap{flex:1}
+.lbbar .like{background:rgba(247,245,239,.12);border-color:rgba(247,245,239,.3);color:var(--paper)}
+.lbbar .like.on{background:var(--brick);border-color:var(--brick);color:#fff}
+
+.daymsgs{
+  border-top:1px solid var(--dust);margin-top:2px;padding-top:14px
+}
+.dmh{
+  font-size:12px;font-weight:800;letter-spacing:.08em;color:var(--mute);margin:0 0 12px
+}
+.daymsgs .msg{padding-bottom:14px}
+.daymsgs .msg .txt{font-size:15px;padding:10px 12px}
 
 .msg{padding:0 0 20px}
 .msg .who{font-size:15px;font-weight:800}
@@ -278,7 +303,7 @@ body{
   <button class="lbx" id="lbClose" type="button" aria-label="關閉">×</button>
   <div class="lbbox" id="lbbox">
     <img id="lbimg" alt="">
-    <div class="cap" id="lbcap"></div>
+    <div class="lbbar"><div class="cap" id="lbcap"></div><div id="lbLike"></div></div>
     <div class="lbmsgs">
       <div id="lbList"></div>
       <div class="compose lbcompose">
@@ -294,7 +319,7 @@ body{
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R4.5';
+const BUILD = 'R5.0';
 
 const COLORS = { '出發':'#0B6E4F', '打卡':'#C99A1E', '收工':'#1F2622',
                  '休息日':'#A8770E', '休息':'#6E8090' };
@@ -312,6 +337,64 @@ let DAYS = [];        // 依日期分好的每一天
 let sel = null;       // 選中的第幾天；null = 全程
 let LEGS = [];        // 分好的路段
 let GROUP = localStorage.getItem('digua_group') === 'week' ? 'week' : 'city';
+
+// 匿名訪客 id，只存在這台瀏覽器裡，用來避免同一個人重複按讚
+const UID = (function(){
+  let u = localStorage.getItem('digua_uid');
+  if (!u) {
+    u = (crypto.randomUUID ? crypto.randomUUID() : 'u' + Date.now() + Math.random().toString(16).slice(2));
+    localStorage.setItem('digua_uid', u);
+  }
+  return u;
+})();
+
+function likeCount(target){ return (DATA && DATA.likes && DATA.likes[target]) || 0; }
+
+function likedByMe(target){
+  try { return (JSON.parse(localStorage.getItem('digua_liked')) || []).indexOf(target) >= 0; }
+  catch (e) { return false; }
+}
+
+function markLiked(target, on){
+  let list = [];
+  try { list = JSON.parse(localStorage.getItem('digua_liked')) || []; } catch (e) {}
+  const i = list.indexOf(target);
+  if (on && i < 0) list.push(target);
+  if (!on && i >= 0) list.splice(i, 1);
+  localStorage.setItem('digua_liked', JSON.stringify(list));
+}
+
+function likeBtn(target, cls){
+  const n = likeCount(target);
+  return '<button class="like' + (cls ? ' ' + cls : '') + (likedByMe(target) ? ' on' : '') +
+         '" data-like="' + esc(target) + '" type="button">' +
+         '<span class="hs">♥</span><span class="hn">' + (n || '') + '</span></button>';
+}
+
+/** 按下去先動畫面再送出，網路慢也不會覺得沒反應 */
+function bindLikes(root){
+  (root || document).querySelectorAll('button[data-like]').forEach(function(b){
+    if (b.dataset.bound) return;
+    b.dataset.bound = '1';
+    b.addEventListener('click', function(e){
+      e.stopPropagation();
+      const t = b.dataset.like;
+      const on = !b.classList.contains('on');
+      b.classList.toggle('on', on);
+      const nEl = b.querySelector('.hn');
+      const cur = Number(nEl.textContent || 0);
+      nEl.textContent = (on ? cur + 1 : Math.max(0, cur - 1)) || '';
+      markLiked(t, on);
+      if (DATA && DATA.likes) DATA.likes[t] = Math.max(0, (DATA.likes[t] || 0) + (on ? 1 : -1));
+
+      fetch(API_URL, {
+        method:'POST', redirect:'follow',
+        headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body: JSON.stringify({ action:'like', target:t, uid:UID })
+      }).catch(function(){});
+    });
+  });
+}
 
 const FACES = { photo:'digua.png', potato:'marker-potato.png',
                 typhoon:'marker-typhoon.png', runner:'marker-runner.png' };
@@ -399,6 +482,7 @@ function groupByDay(d){
     g.to = g.pts[g.pts.length - 1].addr || '';
     Object.assign(g, hoursOf(g.pts));
     // 收工那筆的留言就是當天的日記
+    g.goal = (g.pts.filter(function(p){ return p.goal; })[0] || {}).goal || '';
     const wrap = g.pts.filter(function(p){
       return (p.type === '收工' || p.type === '休息日') && p.note;
     }).pop();
@@ -712,6 +796,7 @@ function drawHead(){
 
   $('when').innerHTML = esc(fullTime(last.t)) + '　' + ago(last.t) +
     (last.wx ? '　·　' + esc(last.wx) : '') +
+    (live && g0.goal ? '<br>今天預計走到 <b>' + esc(g0.goal) + '</b>' + reachedTag(g0) : '') +
     (live ? '<br>' + (g0.restDay ? '今天不走，休息'
                     : g0.done ? '今天在路上 ' + hm(g0.walkMin) + '，收工了'
                     : '今天在路上 ' + hm(g0.walkMin)) : '');
@@ -735,12 +820,44 @@ function drawFeed(){
 
 /** 綁定照片點擊。每次重畫清單後都要呼叫一次 */
 function bindPhotos(){
+  bindLikes($('list'));
   $('list').querySelectorAll('img[data-full]').forEach(function(img){
     img.addEventListener('click', function(){
       openLb(img.dataset.full, img.dataset.cap, img.dataset.pid);
     });
   });
 }
+
+/** 那天大家在留言板上說的話，依留言時間歸日 */
+function dayMsgs(g){
+  return msgsFor('').filter(function(m){ return tpeKey(m.t) === g.key; });
+}
+
+function dayFootHtml(g){
+  return '<p class="dayfoot">' + likeBtn('day:' + g.key) + '</p>';
+}
+
+function dayMsgsHtml(g){
+  const list = dayMsgs(g);
+  if (!list.length) return '';
+  return '<div class="daymsgs"><p class="dmh">當天的留言　' + list.length + ' 則</p>' +
+    list.map(function(m){
+      return '<div class="msg"><div class="who">' + esc(m.name) +
+             '<span>' + hhmm(m.t) + '</span></div>' +
+             '<div class="txt">' + esc(m.text) + '</div></div>';
+    }).join('') + '</div>';
+}
+
+/** 目標達成與否：拿當天最後一筆的地址比對 */
+function reachedTag(g){
+  if (!g.goal) return '';
+  const end = short(g.to || '');
+  if (!end) return '';
+  const hit = twNormLite(end).indexOf(twNormLite(g.goal)) >= 0 ||
+              twNormLite(g.goal).indexOf(twNormLite(end)) >= 0;
+  return hit ? ' <b style="color:#0B6E4F">達成</b>' : '';
+}
+function twNormLite(s){ return String(s || '').replace(/臺/g, '台'); }
 
 function entryHtml(p, g){
   const showNote = p.note && p !== g.diaryFrom;
@@ -764,10 +881,15 @@ function photoStrip(list, dayNo, p){
 }
 
 function imgTag(ph, cap){
-  const n = ph.pid ? msgsFor('photo:' + ph.pid).length : 0;
+  const t = ph.pid ? 'photo:' + ph.pid : '';
+  const n = t ? msgsFor(t).length : 0;
+  const likes = t ? likeCount(t) : 0;
   const img = '<img loading="lazy" src="' + thumbOf(ph.pid, ph.url) + '" data-full="' + ph.url +
               '" data-pid="' + esc(ph.pid) + '" data-cap="' + cap + '" alt="">';
-  return n ? '<span class="ph">' + img + '<b>' + n + '</b></span>' : img;
+  if (!n && !likes) return t ? '<span class="ph">' + img + '</span>' : img;
+  return '<span class="ph">' + img + '<b>' +
+         (likes ? '<i class="hh">♥</i>' + likes + (n ? '　' : '') : '') +
+         (n ? '<i class="cc">💬</i>' + n : '') + '</b></span>';
 }
 
 function photoCount(){
@@ -998,7 +1120,7 @@ function dayBlock(g){
          g.pts.reduce(function(k, p){ return k + photosOf(p).length; }, 0) + ' 張</p>';
     if (g.diary) h += '<p class="diary" style="border-left-color:#A8770E">' + esc(g.diary) + '</p>';
     g.pts.forEach(function(p){ h += entryHtml(p, g); });
-    return h + '</section>';
+    return h + dayFootHtml(g) + dayMsgsHtml(g) + '</section>';
   }
 
   if (g.from && g.to && short(g.from) !== short(g.to)) {
@@ -1010,12 +1132,13 @@ function dayBlock(g){
        '　·　在路上 ' + hm(g.walkMin) +
        (g.restMin ? '　·　休息 ' + hm(g.restMin) : '') + '</p>';
   h += '<p class="stat" style="margin-top:-8px">打卡 ' + g.pts.length + ' 次　·　照片 ' +
-       g.pts.reduce(function(k, p){ return k + photosOf(p).length; }, 0) + ' 張</p>';
+       g.pts.reduce(function(k, p){ return k + photosOf(p).length; }, 0) + ' 張' +
+       (g.goal ? '　·　目標 ' + esc(g.goal) + reachedTag(g) : '') + '</p>';
 
   if (g.diary) h += '<p class="diary">' + esc(g.diary) + '</p>';
 
   g.pts.forEach(function(p){ h += entryHtml(p, g); });
-  return h + '</section>';
+  return h + dayFootHtml(g) + dayMsgsHtml(g) + '</section>';
 }
 
 let LB_PID = '';
@@ -1024,6 +1147,8 @@ function openLb(src, cap, pid){
   LB_PID = pid || '';
   $('lbimg').src = src;
   $('lbcap').textContent = cap || '';
+  $('lbLike').innerHTML = LB_PID ? likeBtn('photo:' + LB_PID, 'big') : '';
+  bindLikes($('lbLike'));
   $('pName').value = localStorage.getItem('digua_name') || '';
   $('pText').value = '';
   $('pHint').textContent = '';

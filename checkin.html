@@ -6,13 +6,14 @@
 <meta name="theme-color" content="#F7F5EF">
 <title>地瓜打卡</title>
 <link rel="manifest" href="manifest.json">
+<script src="tw.js"></script>
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <style>
 :root{
   --paper:#F7F5EF; --ink:#1F2622; --sign:#0B6E4F; --paint:#F4E04D;
   --brick:#B4472E; --dust:#C9C3B2; --mute:#6B6F68;
-  --BUILD:"R4.4";
+  --BUILD:"R5.0";
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%}
@@ -106,6 +107,20 @@ footer b{color:var(--ink);font-weight:700}
 .panel h2{margin:0 0 4px;font-size:26px;font-weight:800;letter-spacing:.04em}
 .fix{font-size:13px;color:var(--mute);margin:0 0 16px;min-height:20px}
 .fix.bad{color:var(--brick);font-weight:600}
+.goalbox{margin-bottom:14px}
+.goalbox label{display:block;font-size:14px;font-weight:800;margin-bottom:6px}
+.goalsel{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.goalsel select{
+  width:100%;padding:13px 10px;border:1.5px solid var(--dust);border-radius:10px;
+  font-family:inherit;font-size:17px;font-weight:600;background:#fff;color:var(--ink);
+  -webkit-appearance:none;appearance:none;
+  background-image:linear-gradient(45deg,transparent 50%,var(--mute) 50%),linear-gradient(135deg,var(--mute) 50%,transparent 50%);
+  background-position:calc(100% - 17px) 50%,calc(100% - 12px) 50%;
+  background-size:5px 5px,5px 5px;background-repeat:no-repeat
+}
+.goalsel select:focus{outline:none;border-color:var(--sign)}
+.goalbox p{margin:6px 2px 0;font-size:13px;color:var(--mute);line-height:1.6}
+
 .kmbox{margin-bottom:12px}
 .kmbox label{display:block;font-size:14px;font-weight:800;margin-bottom:6px}
 .kmbox input{
@@ -193,6 +208,15 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
   <div class="panel">
     <h2 id="panelTitle">出發</h2>
     <p class="fix" id="fix">正在定位…</p>
+    <div class="goalbox" id="goalbox" hidden>
+      <label>今天預計走到</label>
+      <div class="goalsel">
+        <select id="gCity"></select>
+        <select id="gTown"></select>
+      </div>
+      <p>可留空。選了會寫進日記，也會出現在給好友的信裡。</p>
+    </div>
+
     <div class="kmbox" id="kmbox" hidden>
       <label for="km">今天實際走了幾公里？</label>
       <input type="number" id="km" inputmode="decimal" step="0.1" min="0" max="200" placeholder="例如 28.5">
@@ -223,7 +247,7 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
 
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R4.4';
+const BUILD = 'R5.0';
 const QKEY = 'digua_queue';
 const TKEY = 'digua_token';
 
@@ -258,6 +282,8 @@ function openPanel(type){
   $('note').placeholder = ph[type] || '想說的話（可留空）';
   $('kmbox').hidden = type !== '收工';
   $('km').value = '';
+  $('goalbox').hidden = type !== '出發';
+  if (type === '出發') fillGoal();
   drawThumbs();
   $('send').disabled = true;
   $('fix').textContent = '正在定位…';
@@ -396,6 +422,7 @@ function saveDraft(){
     localStorage.setItem(DKEY, JSON.stringify({
       at: Date.now(), type: current.type,
       note: $('note').value, km: $('km').value,
+      gCity: $('gCity').value, gTown: $('gTown').value,
       photos: current.photos
     }));
   } catch (err) {
@@ -421,8 +448,42 @@ function restoreDraft(){
   current.photos = d.photos || [];
   $('note').value = d.note || '';
   $('km').value = d.km || '';
+  if (d.type === '出發' && d.gCity) {
+    $('gCity').value = d.gCity; fillTowns(); $('gTown').value = d.gTown || '';
+  }
   drawThumbs();
   toast('剛才那筆還沒送出，幫你留著了');
+}
+
+/** 目標地點的兩層選單。預設帶出他現在所在的縣市，隔壁縣市排在前面 */
+function fillGoal(){
+  let here = '';
+  try {
+    const last = JSON.parse(localStorage.getItem('digua_last'));
+    here = twCity(last && last.addr);
+  } catch (e) {}
+
+  const cities = twCities(here);
+  $('gCity').innerHTML = '<option value="">（不設定）</option>' +
+    cities.map(function(c){ return '<option value="' + c + '">' + c + '</option>'; }).join('');
+  $('gCity').value = here || '';
+  fillTowns();
+}
+
+function fillTowns(){
+  const c = $('gCity').value;
+  const list = TW[c] || [];
+  $('gTown').innerHTML = '<option value="">' + (c ? '選鄉鎮市區' : '—') + '</option>' +
+    list.map(function(t){ return '<option value="' + t + '">' + t + '</option>'; }).join('');
+  $('gTown').disabled = !c;
+}
+
+$('gCity').addEventListener('change', fillTowns);
+
+function goalValue(){
+  const c = $('gCity').value, t = $('gTown').value;
+  if (!c) return '';
+  return c + t;      // 沒選鄉鎮就只寫縣市
 }
 
 function drawThumbs(){
@@ -449,6 +510,10 @@ $('send').addEventListener('click', function(){
     type:current.type, lat:current.lat, lng:current.lng, acc:current.acc,
     battery:current.battery, note:$('note').value.trim(), photos:current.photos
   };
+  if (current.type === '出發') {
+    const g = goalValue();
+    if (g) rec.goal = g;
+  }
   if (current.type === '收工') {
     const km = parseFloat($('km').value);
     if (isFinite(km) && km > 0) rec.km = km;
@@ -564,6 +629,42 @@ function toast(msg){
 }
 
 /** 讀今天的狀態，過了午夜就作廢 */
+/**
+ * 跟伺服器重新對一次今日狀態。
+ * 打卡當下的回應可能在路上掉了，只靠那一次會讓計時器停在錯的狀態。
+ * 開 App、切回前景時各對一次，就算漏掉也會自己補回來。
+ */
+function syncToday(){
+  fetch(API_URL + '?api=feed&_=' + Date.now())
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      if (!res || !res.ok || !res.data) return;
+      const today = new Date().toLocaleDateString('en-CA', { timeZone:'Asia/Taipei' });
+      const pts = (res.data.points || []).filter(function(p){
+        return new Date(p.t).toLocaleDateString('en-CA', { timeZone:'Asia/Taipei' }) === today;
+      });
+      if (!pts.length) return;
+
+      const restDay = pts.some(function(p){ return p.type === '休息日'; });
+      const t0 = new Date(pts[0].t);
+      const done = pts.filter(function(p){ return p.type === '收工'; }).pop();
+      const t1 = done ? new Date(done.t) : new Date();
+      const walkSec = restDay ? 0 : Math.max(0, Math.round((t1 - t0) / 1000));
+
+      localStorage.setItem('digua_today', JSON.stringify({
+        at: Date.now(), walkSec: walkSec, restSec: 0, walkMin: Math.round(walkSec / 60),
+        restMin: 0, resting: false, done: !!done, rest: restDay
+      }));
+      const last = pts[pts.length - 1];
+      localStorage.setItem('digua_last', JSON.stringify({
+        type: last.type, ts: last.t, addr: last.addr || '', wx: last.wx || '',
+        lat: last.lat, lng: last.lng
+      }));
+      render();
+    })
+    .catch(function(){});
+}
+
 function todayState(){
   let t = null;
   try { t = JSON.parse(localStorage.getItem('digua_today')); } catch(e){}
@@ -717,7 +818,9 @@ showWx();
 loadWx();
 setInterval(function(){ if (!document.hidden) loadWx(); }, 15 * 60 * 1000);
 setInterval(function(){ if (!document.hidden) tick(); }, 1000);
-document.addEventListener('visibilitychange', function(){ if (!document.hidden) tick(); });
+document.addEventListener('visibilitychange', function(){
+  if (!document.hidden) { tick(); syncToday(); }
+});
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function(){});
 </script>
