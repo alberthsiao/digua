@@ -13,7 +13,7 @@
 :root{
   --paper:#F7F5EF; --ink:#1F2622; --sign:#0B6E4F; --paint:#F4E04D;
   --brick:#B4472E; --dust:#C9C3B2; --mute:#6B6F68;
-  --BUILD:"R5.0";
+  --BUILD:"R5.1";
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%}
@@ -247,7 +247,7 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
 
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R5.0';
+const BUILD = 'R5.1';
 const QKEY = 'digua_queue';
 const TKEY = 'digua_token';
 
@@ -671,10 +671,11 @@ function todayState(){
   if (!t || !sameDay(t.at)) return null;
   const gone = Math.max(0, Math.round((Date.now() - t.at) / 1000));
   return {
-    walk: (t.walkSec || t.walkMin * 60 || 0) + (t.resting || t.done ? 0 : gone),
-    rest: (t.restSec || t.restMin * 60 || 0) + (t.resting ? gone : 0),
+    walk: (t.walkSec || t.walkMin * 60 || 0) + (t.resting || t.done || t.rest ? 0 : gone),
+    restSec: (t.restSec || t.restMin * 60 || 0) + (t.resting ? gone : 0),
     resting: !!t.resting,
-    done: !!t.done
+    done: !!t.done,
+    restDay: !!t.rest          // 後端用 rest 這個欄位標記休息日
   };
 }
 
@@ -695,7 +696,7 @@ function tick(){
     setTimer('尚未出發', '0:00:00', '按「出發」開始計時');
     return;
   }
-  if (t.rest) {
+  if (t.restDay) {
     box.classList.add('stayday');
     setTimer('今天休息', '—', '不計時，好好休息');
     return;
@@ -813,11 +814,14 @@ $('who').textContent = '陳地瓜走到哪　' + BUILD;
 render();
 flush();
 tick();
+syncToday();
 restoreDraft();
 showWx();
 loadWx();
 setInterval(function(){ if (!document.hidden) loadWx(); }, 15 * 60 * 1000);
 setInterval(function(){ if (!document.hidden) tick(); }, 1000);
+setInterval(function(){ if (!document.hidden) syncToday(); }, 5 * 60 * 1000);
+window.addEventListener('online', syncToday);
 document.addEventListener('visibilitychange', function(){
   if (!document.hidden) { tick(); syncToday(); }
 });
