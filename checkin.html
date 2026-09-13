@@ -13,7 +13,7 @@
 :root{
   --paper:#F7F5EF; --ink:#1F2622; --sign:#0B6E4F; --paint:#F4E04D;
   --brick:#B4472E; --dust:#C9C3B2; --mute:#6B6F68;
-  --BUILD:"R5.1";
+  --BUILD:"R5.3";
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%}
@@ -52,6 +52,12 @@ header{padding:14px 0 12px;flex:none}
 .timer.done .badge{background:var(--ink);color:var(--paper)}
 .timer.walking .badge i,.timer.resting .badge i{animation:blink 1.6s ease-in-out infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+
+.unread{
+  width:100%;margin-top:8px;padding:13px 16px;border:0;border-radius:12px;
+  background:var(--paint);color:var(--ink);font-family:inherit;font-size:16px;
+  font-weight:800;letter-spacing:.02em;cursor:pointer;text-align:left
+}
 
 .wx{
   margin-top:8px;background:#fff;border-radius:12px;padding:11px 15px 12px;
@@ -189,6 +195,7 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
       <div class="state" id="state"></div>
     </div>
   </div>
+  <button class="unread" id="unread" hidden type="button"></button>
   <div class="wx" id="wx" hidden>
     <div class="wxline"><b id="wxT">—</b><span id="wxD"></span></div>
     <p class="wxTip" id="wxTip"></p>
@@ -247,7 +254,7 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0}
 
 <script>
 const API_URL = 'https://script.google.com/macros/s/AKfycbxHZleW9xm1otyoOxck_2M5N8Ux_8trtr92LnVCN6cRMkXOsyc2gZ2DTFO-KtngFS5V/exec';
-const BUILD = 'R5.1';
+const BUILD = 'R5.3';
 const QKEY = 'digua_queue';
 const TKEY = 'digua_token';
 
@@ -292,6 +299,8 @@ function openPanel(type){
   saveDraft();
   locate();
   readBattery();
+  clearTimeout(openPanel._t);
+  openPanel._t = setTimeout(fixTimeout, 30000);
 }
 
 $('note').addEventListener('input', saveDraft);
@@ -300,6 +309,7 @@ $('cancel').addEventListener('click', closeSheet);
 $('sheet').addEventListener('click', function(e){ if (e.target === $('sheet')) closeSheet(); });
 
 function closeSheet(){
+  clearTimeout(openPanel._t);
   clearDraft();
   $('sheet').classList.remove('on');
   if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
@@ -329,7 +339,34 @@ function locate(){
 function fixFail(msg){
   $('fix').textContent = msg;
   $('fix').classList.add('bad');
-  $('send').disabled = true;
+  offerFallback();
+}
+
+/**
+ * 定位拿不到時的退路。
+ * 用上次打卡的座標先送出，總比整天打不了卡好。
+ * 位置會標成「沿用上次」，事後看得出來哪幾筆不準。
+ */
+function offerFallback(){
+  let last = null;
+  try { last = JSON.parse(localStorage.getItem('digua_last')); } catch (e) {}
+  if (!current || !last || last.lat == null) { $('send').disabled = true; return; }
+
+  current.lat = last.lat;
+  current.lng = last.lng;
+  current.acc = null;
+  current.approx = true;
+  $('send').disabled = false;
+  $('fix').innerHTML = $('fix').textContent +
+    '<br><b>可以先用上次的位置送出</b>（' + esc(last.addr || '上次打卡處') + '）';
+}
+
+/** 等太久還沒定到位，也給他退路 */
+function fixTimeout(){
+  if (!current || current.lat != null) return;
+  $('fix').textContent = '一直收不到定位訊號';
+  $('fix').classList.add('bad');
+  offerFallback();
 }
 
 function readBattery(){
@@ -510,6 +547,7 @@ $('send').addEventListener('click', function(){
     type:current.type, lat:current.lat, lng:current.lng, acc:current.acc,
     battery:current.battery, note:$('note').value.trim(), photos:current.photos
   };
+  if (current.approx) rec.approx = true;
   if (current.type === '出發') {
     const g = goalValue();
     if (g) rec.goal = g;
@@ -567,7 +605,10 @@ function flush(){
         Object.assign({ at: Date.now() }, res.today)));
       tick();
       loadWx(rec.lat, rec.lng);
-      if (res.newMsgs && res.newMsgs.length) showMsgs(res.newMsgs);
+      if (res.newMsgs && res.newMsgs.length) {
+        const fresh = unreadFrom(res.newMsgs.filter(function(m){ return !(m.target || ''); }));
+        if (fresh.length) showMsgs(fresh);
+      }
       render();
       flush();
     } else {
@@ -611,8 +652,16 @@ function showMsgs(list){
            '<div class="txt">' + esc(m.text) + '</div></div>';
   }).join('');
   $('msgs').classList.add('on');
+  $('msgs').dataset.list = JSON.stringify(list.map(function(m){ return m.t; }));
+  MSGS_SHOWN = list;
 }
-$('msgsOk').addEventListener('click', function(){ $('msgs').classList.remove('on'); });
+
+let MSGS_SHOWN = [];
+$('msgsOk').addEventListener('click', function(){
+  $('msgs').classList.remove('on');
+  markMsgsSeen(MSGS_SHOWN);
+  MSGS_SHOWN = [];
+});
 
 function esc(t){
   return String(t == null ? '' : t).replace(/[&<>"]/g, function(c){
@@ -634,11 +683,39 @@ function toast(msg){
  * 打卡當下的回應可能在路上掉了，只靠那一次會讓計時器停在錯的狀態。
  * 開 App、切回前景時各對一次，就算漏掉也會自己補回來。
  */
+const SEEN = 'digua_msgseen';
+
+/** 還沒讀過的留言。用已讀時間算，所以漏掉一次也不會永遠消失 */
+function unreadFrom(msgs){
+  const seen = localStorage.getItem(SEEN) || '';
+  return (msgs || []).filter(function(m){ return !seen || m.t > seen; });
+}
+
+function markMsgsSeen(msgs){
+  if (!msgs || !msgs.length) return;
+  const newest = msgs.map(function(m){ return m.t; }).sort().pop();
+  localStorage.setItem(SEEN, newest);
+  drawUnread([]);
+}
+
+function drawUnread(list){
+  const b = $('unread');
+  if (!list.length) { b.hidden = true; return; }
+  b.hidden = false;
+  b.textContent = '💬　' + list.length + ' 則新留言，點開來看';
+  b.onclick = function(){ showMsgs(list); };
+}
+
 function syncToday(){
   fetch(API_URL + '?api=feed&_=' + Date.now())
     .then(function(r){ return r.json(); })
     .then(function(res){
       if (!res || !res.ok || !res.data) return;
+
+      // 留言：拿全部的來比對已讀時間，一則都不會漏
+      const boardMsgs = (res.data.msgs || []).filter(function(m){ return !(m.target || ''); });
+      drawUnread(unreadFrom(boardMsgs));
+
       const today = new Date().toLocaleDateString('en-CA', { timeZone:'Asia/Taipei' });
       const pts = (res.data.points || []).filter(function(p){
         return new Date(p.t).toLocaleDateString('en-CA', { timeZone:'Asia/Taipei' }) === today;
